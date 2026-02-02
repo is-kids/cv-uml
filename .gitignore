@@ -1,1 +1,40 @@
-.idea
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+*.egg-info/
+dist/
+build/
+
+# Model cache
+*.pt
+*.bin
+*.safetensors
+
+# Results
+results.json
+eval_results.json
+*.jsonl
+
+# Temp
+*.tmp
+temp/
+.scratchpad/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

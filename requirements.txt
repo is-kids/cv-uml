@@ -1,0 +1,39 @@
+# Core
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+python-multipart>=0.0.6
+
+# LLM - Qwen2-VL
+torch>=2.1.0
+transformers>=4.37.0
+accelerate>=0.25.0
+qwen-vl-utils>=0.0.2
+
+# Image processing
+Pillow>=10.0.0
+cairosvg>=2.7.0
+
+# Document converters
+PyMuPDF>=1.23.0
+python-pptx>=0.6.21
+python-docx>=1.1.0
+
+# Archive handling
+py7zr>=0.20.0
+rarfile>=4.1
+patool>=1.12
+
+# XML parsing (stdlib, but explicit)
+lxml>=4.9.0
+
+# OCR (optional)
+pytesseract>=0.3.10
+
+# CLI
+click>=8.1.0
+tqdm>=4.66.0
+
+# Utilities
+aiofiles>=23.2.0
+httpx>=0.25.0
