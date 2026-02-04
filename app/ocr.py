@@ -1,4 +1,6 @@
 import logging
+import os
+import shutil
 from typing import Optional
 
 from PIL import Image
@@ -6,6 +8,33 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 _tesseract_available = None
+
+# Windows: set tesseract path if not in PATH
+def _configure_tesseract():
+    try:
+        import pytesseract
+
+        # Check if already works
+        if shutil.which("tesseract"):
+            return
+
+        # Common Windows paths
+        common_paths = [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            os.path.expanduser(r"~\AppData\Local\Tesseract-OCR\tesseract.exe"),
+        ]
+
+        for path in common_paths:
+            if os.path.exists(path):
+                pytesseract.pytesseract.tesseract_cmd = path
+                logger.info(f"Tesseract found at: {path}")
+                return
+
+    except Exception as e:
+        logger.warning(f"Failed to configure tesseract: {e}")
+
+_configure_tesseract()
 
 
 def is_tesseract_available() -> bool:

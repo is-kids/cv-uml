@@ -5,8 +5,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, HTTPException, UploadFile, Query
+from fastapi.responses import JSONResponse, PlainTextResponse, HTMLResponse
 from PIL import Image
 
 from app.llm import warmup
@@ -19,9 +19,10 @@ from app.models import (
 )
 from app.pipeline import process_path
 from app.preprocessing import preprocess_image
-from app.prompts import IMAGE_PROMPT
+from app.prompts import IMAGE_PROMPT, IMAGE_PROMPT_NO_OCR
 from app.postprocessing import parse_llm_response
 from app.llm import image_inference
+from app.ocr import extract_text, is_tesseract_available
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,8 +48,105 @@ async def health_check():
     return {"status": "ok", "model": "Qwen2-VL-2B-Instruct"}
 
 
-@app.post("/api/extract", response_model=ExtractionResult)
-async def extract_from_image(file: UploadFile = File(...)):
+def format_result_text(result: ExtractionResult) -> str:
+    """Format result as readable plain text."""
+    lines = []
+    lines.append(f"{'='*50}")
+    lines.append(f"Файл: {result.source_file}")
+    if result.diagram_type:
+        lines.append(f"Тип: {result.diagram_type}")
+    lines.append(f"{'='*50}")
+    lines.append("")
+
+    if result.error:
+        lines.append(f"ОШИБКА: {result.error}")
+        return "\n".join(lines)
+
+    if not result.steps:
+        lines.append("Шаги не найдены")
+        return "\n".join(lines)
+
+    lines.append("АЛГОРИТМ:")
+    lines.append("")
+
+    for step in result.steps:
+        num = step.number or "•"
+        line = f"  {num}. "
+        if step.actor:
+            line += f"[{step.actor}] "
+        line += step.action or "—"
+        if step.target and step.target != step.actor:
+            line += f" → {step.target}"
+        lines.append(line)
+
+    lines.append("")
+    lines.append(f"Всего шагов: {len(result.steps)}")
+    if result.confidence:
+        lines.append(f"Уверенность: {result.confidence:.0%}")
+
+    return "\n".join(lines)
+
+
+def format_result_html(result: ExtractionResult) -> str:
+    """Format result as HTML page."""
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{result.source_file} - CV-UML</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               max-width: 800px; margin: 40px auto; padding: 20px; background: #1a1a2e; color: #eee; }}
+        h1 {{ color: #00d4ff; margin-bottom: 5px; }}
+        .type {{ color: #888; margin-bottom: 20px; }}
+        .steps {{ background: #16213e; padding: 20px; border-radius: 8px; }}
+        .step {{ padding: 10px 15px; margin: 8px 0; background: #0f3460; border-radius: 6px;
+                 border-left: 3px solid #00d4ff; }}
+        .step-num {{ color: #00d4ff; font-weight: bold; margin-right: 10px; }}
+        .actor {{ color: #ffaa00; margin-right: 8px; }}
+        .action {{ color: #fff; }}
+        .target {{ color: #888; margin-left: 8px; }}
+        .note {{ color: #666; font-style: italic; margin-top: 5px; font-size: 0.9em; }}
+        .summary {{ margin-top: 20px; color: #888; }}
+        .error {{ background: #4a1a1a; border-left-color: #ff4444; }}
+    </style>
+</head>
+<body>
+    <h1>{result.source_file}</h1>
+    <div class="type">{result.diagram_type or 'Тип не определён'}</div>
+"""
+
+    if result.error:
+        html += f'<div class="step error">Ошибка: {result.error}</div>'
+    elif not result.steps:
+        html += '<div class="step">Шаги не найдены</div>'
+    else:
+        html += '<div class="steps">'
+        for step in result.steps:
+            html += '<div class="step">'
+            html += f'<span class="step-num">{step.number or "•"}.</span>'
+            if step.actor:
+                html += f'<span class="actor">[{step.actor}]</span>'
+            html += f'<span class="action">{step.action or "—"}</span>'
+            if step.target and step.target != step.actor:
+                html += f'<span class="target">→ {step.target}</span>'
+            if step.note and step.note != step.action:
+                html += f'<div class="note">{step.note}</div>'
+            html += '</div>'
+        html += '</div>'
+
+        conf_pct = f"{result.confidence:.0%}" if result.confidence else "—"
+        html += f'<div class="summary">Шагов: {len(result.steps)} | Уверенность: {conf_pct}</div>'
+
+    html += "</body></html>"
+    return html
+
+
+@app.post("/api/extract")
+async def extract_from_image(
+    file: UploadFile = File(...),
+    format: str = Query("json", description="Output format: json, text, html")
+):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
@@ -57,10 +155,29 @@ async def extract_from_image(file: UploadFile = File(...)):
         image = Image.open(io.BytesIO(contents))
         processed = preprocess_image(image)
 
-        response = image_inference(processed, IMAGE_PROMPT)
+        # Run OCR if available
+        ocr_text = ""
+        if is_tesseract_available():
+            logger.info("Running OCR...")
+            ocr_text = extract_text(image) or ""
+            if ocr_text:
+                logger.info(f"OCR extracted {len(ocr_text)} chars")
+
+        # Build prompt with or without OCR
+        if ocr_text:
+            prompt = IMAGE_PROMPT.format(ocr_text=ocr_text)
+        else:
+            prompt = IMAGE_PROMPT_NO_OCR
+
+        response = image_inference(processed, prompt)
         result = parse_llm_response(response, file.filename or "uploaded_image")
 
-        return result
+        if format == "text":
+            return PlainTextResponse(format_result_text(result))
+        elif format == "html":
+            return HTMLResponse(format_result_html(result))
+        else:
+            return result
 
     except Exception as e:
         logger.exception("Extraction failed")

@@ -1,6 +1,7 @@
-"""LLM module for Qwen2-VL-2B-Instruct inference."""
+"""LLM module for Qwen2-VL inference."""
 
 import logging
+import os
 from functools import lru_cache
 from typing import Optional
 
@@ -10,7 +11,7 @@ from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = "Qwen/Qwen2-VL-2B-Instruct"
+MODEL_ID = os.environ.get("QWEN_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
 
 _model: Optional[Qwen2VLForConditionalGeneration] = None
 _processor: Optional[AutoProcessor] = None
@@ -75,7 +76,6 @@ def image_inference(image: Image.Image, prompt: str, max_tokens: int = 2048) -> 
     """
     model, processor = load_model()
 
-    # Prepare messages in Qwen2-VL format
     messages = [
         {
             "role": "user",

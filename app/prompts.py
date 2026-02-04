@@ -1,60 +1,140 @@
 """Prompts for LLM inference."""
 
-# Prompt for extracting steps from diagram images
-IMAGE_PROMPT = """Analyze this diagram image and extract all steps/actions shown.
+# Prompt for extracting steps from diagram images (with OCR text)
+IMAGE_PROMPT = """Ты анализируешь изображение диаграммы процесса. Это может быть BPMN, flowchart, UML sequence, или произвольная схема.
 
-Output a JSON object with this structure:
-{
-  "diagram_type": "sequence|flowchart|activity|state|class|other",
+Твоя задача: извлечь пошаговый алгоритм из диаграммы.
+
+Текст с диаграммы (OCR):
+{ocr_text}
+
+ВАЖНО:
+- Сохраняй ОРИГИНАЛЬНЫЙ язык текста с диаграммы (русский, английский и т.д.)
+- НЕ переводи текст
+- Извлекай ВСЕ шаги, которые видишь
+- Роль/актор — это КТО выполняет действие (участник, система, пользователь)
+- Если роль не указана явно, поставь null
+
+Ответь ТОЛЬКО валидным JSON в формате:
+{{
+  "diagram_type": "sequence|flowchart|activity|bpmn|other",
   "steps": [
-    {
-      "number": 1,
-      "actor": "actor name or null",
-      "action": "description of action",
-      "target": "target of action or null",
-      "note": "additional notes or null"
-    }
+    {{"number": 1, "actor": "роль или null", "action": "описание действия", "target": "цель или null", "note": "примечание или null"}}
+  ],
+  "confidence": 0.0-1.0
+}}
+
+ПРИМЕРЫ:
+
+Пример 1 (BPMN процесс):
+{{
+  "diagram_type": "bpmn",
+  "steps": [
+    {{"number": 1, "actor": "Инициатор", "action": "Создание запроса", "target": null, "note": null}},
+    {{"number": 2, "actor": "Координатор", "action": "Внесение технологии в тех. стек", "target": "Технологический стек", "note": "статус Consideration"}},
+    {{"number": 3, "actor": "Совет по технологиям", "action": "Принятие решения", "target": null, "note": null}}
+  ],
+  "confidence": 0.85
+}}
+
+Пример 2 (Flowchart):
+{{
+  "diagram_type": "flowchart",
+  "steps": [
+    {{"number": 1, "actor": null, "action": "Начало", "target": null, "note": null}},
+    {{"number": 2, "actor": null, "action": "Наполнить чайник", "target": null, "note": null}},
+    {{"number": 3, "actor": null, "action": "Включить чайник", "target": null, "note": null}},
+    {{"number": 4, "actor": null, "action": "Ждать закипания", "target": null, "note": "условие: чайник закипел?"}},
+    {{"number": 5, "actor": null, "action": "Чай готов", "target": null, "note": null}}
+  ],
+  "confidence": 0.9
+}}
+
+Пример 3 (Sequence diagram):
+{{
+  "diagram_type": "sequence",
+  "steps": [
+    {{"number": 1, "actor": "Клиент", "action": "Отправляет запрос", "target": "Сервер", "note": null}},
+    {{"number": 2, "actor": "Сервер", "action": "Проверяет данные", "target": "База данных", "note": null}},
+    {{"number": 3, "actor": "База данных", "action": "Возвращает результат", "target": "Сервер", "note": null}},
+    {{"number": 4, "actor": "Сервер", "action": "Отправляет ответ", "target": "Клиент", "note": null}}
+  ],
+  "confidence": 0.95
+}}
+
+Теперь проанализируй изображение и верни JSON."""
+
+
+# Prompt without OCR text
+IMAGE_PROMPT_NO_OCR = """Ты анализируешь изображение диаграммы процесса. Это может быть BPMN, flowchart, UML sequence, или произвольная схема.
+
+Твоя задача: извлечь пошаговый алгоритм из диаграммы.
+
+ВАЖНО:
+- Сохраняй ОРИГИНАЛЬНЫЙ язык текста с диаграммы (русский, английский и т.д.)
+- НЕ переводи текст
+- Извлекай ВСЕ шаги, которые видишь
+- Роль/актор — это КТО выполняет действие (участник, система, пользователь)
+- Если роль не указана явно, поставь null
+
+Ответь ТОЛЬКО валидным JSON в формате:
+{
+  "diagram_type": "sequence|flowchart|activity|bpmn|other",
+  "steps": [
+    {"number": 1, "actor": "роль или null", "action": "описание действия", "target": "цель или null", "note": "примечание или null"}
   ],
   "confidence": 0.0-1.0
 }
 
-Rules:
-1. Number steps sequentially starting from 1
-2. For sequence diagrams: actor is the sender, target is the receiver
-3. For flowcharts: actor can be the shape type (decision, process, etc.)
-4. Include ALL visible steps, arrows, and connections
-5. Read text labels carefully
-6. Set confidence based on clarity of the diagram
-
-Return ONLY valid JSON, no other text."""
+Проанализируй изображение и верни JSON."""
 
 
 # Prompt for extracting steps from text-based diagram formats (DrawIO XML, BPMN)
-TEXT_PROMPT = """Analyze this diagram definition and extract all steps/actions.
+TEXT_PROMPT = """Ты анализируешь текстовое описание диаграммы (PlantUML код, Structurizr DSL, метки из XML или текстовое описание).
 
-Output a JSON object with this structure:
-{
+Извлеки пошаговый алгоритм процесса.
+
+Содержимое:
+{content}
+
+Ответь ТОЛЬКО валидным JSON в формате:
+{{
   "diagram_type": "sequence|flowchart|activity|state|bpmn|other",
   "steps": [
-    {
-      "number": 1,
-      "actor": "actor/participant name or null",
-      "action": "description of action/task",
-      "target": "target or null",
-      "note": "additional notes or null"
-    }
+    {{"number": 1, "actor": "участник или null", "action": "описание действия", "target": "цель или null", "note": "примечание или null"}}
   ],
   "confidence": 0.0-1.0
-}
+}}
 
-Rules:
-1. Parse element names, labels, and values
-2. Follow connections/edges to determine step order
-3. Include participants, tasks, gateways, events
-4. For BPMN: extract startEvent, tasks, gateways, endEvent
-5. For DrawIO: extract mxCell labels and connections
+Правила:
+1. Парси имена элементов, метки и значения
+2. Следуй по связям/стрелкам для определения порядка шагов
+3. Включай участников, задачи, развилки, события
+4. Сохраняй оригинальный язык текста
 
-Return ONLY valid JSON, no other text."""
+Верни JSON."""
+
+
+# Simplified prompts for when full JSON parsing fails
+SIMPLE_IMAGE_PROMPT = """Перечисли все шаги с этой диаграммы, по одному на строку.
+Формат: [номер]. [роль, если есть] -> [действие] -> [цель, если есть]
+
+ВАЖНО: Сохраняй оригинальный язык текста с диаграммы. НЕ переводи.
+
+Пример:
+1. Инициатор -> Создание запроса
+2. Координатор -> Внесение технологии в стек -> Технологический стек
+3. Совет -> Принятие решения
+
+Теперь перечисли шаги с изображения:"""
+
+
+SIMPLE_TEXT_PROMPT = """Перечисли все шаги/действия из этого описания диаграммы, по одному на строку.
+Формат: [номер]. [роль, если есть] -> [действие] -> [цель, если есть]
+
+Пример:
+1. Пользователь -> Отправляет запрос -> Сервер
+2. Сервер -> Обрабатывает данные -> База данных"""
 
 
 # Prompt for generating PlantUML from steps
@@ -76,20 +156,3 @@ Steps:
 Output valid PlantUML code starting with @startuml and ending with @enduml.
 Use proper activity diagram syntax with :action; format.
 Include decision points if implied by the steps."""
-
-
-# Simplified prompts for when full JSON parsing fails
-SIMPLE_IMAGE_PROMPT = """List all steps shown in this diagram, one per line.
-Format each line as: [number]. [actor] -> [action] -> [target]
-If actor or target is unclear, use "?"
-Example:
-1. User -> clicks login button -> System
-2. System -> validates credentials -> Database"""
-
-
-SIMPLE_TEXT_PROMPT = """List all steps/actions from this diagram definition, one per line.
-Format each line as: [number]. [actor] -> [action] -> [target]
-If actor or target is unclear, use "?"
-Example:
-1. User -> submits form -> Server
-2. Server -> saves data -> Database"""

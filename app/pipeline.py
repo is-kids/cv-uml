@@ -15,9 +15,10 @@ from app.converters import (
 )
 from app.llm import image_inference, text_inference
 from app.models import ExtractionResult, FileInput, FileType
+from app.ocr import extract_text, is_tesseract_available
 from app.postprocessing import parse_llm_response, validate_steps
 from app.preprocessing import load_and_preprocess, preprocess_image
-from app.prompts import IMAGE_PROMPT, SIMPLE_IMAGE_PROMPT, SIMPLE_TEXT_PROMPT, TEXT_PROMPT
+from app.prompts import IMAGE_PROMPT, IMAGE_PROMPT_NO_OCR, SIMPLE_IMAGE_PROMPT, SIMPLE_TEXT_PROMPT, TEXT_PROMPT
 from app.router import get_file_type
 from app.scanner import scan_directory
 
@@ -32,7 +33,22 @@ def process_image(
 ) -> ExtractionResult:
     try:
         processed = preprocess_image(image)
-        prompt = SIMPLE_IMAGE_PROMPT if use_simple_prompt else IMAGE_PROMPT
+
+        # Extract text with OCR if available
+        ocr_text = ""
+        if is_tesseract_available():
+            logger.info("Running OCR...")
+            ocr_text = extract_text(image) or ""
+            if ocr_text:
+                logger.info(f"OCR extracted {len(ocr_text)} chars")
+
+        # Build prompt with or without OCR text
+        if use_simple_prompt:
+            prompt = SIMPLE_IMAGE_PROMPT
+        elif ocr_text:
+            prompt = IMAGE_PROMPT.format(ocr_text=ocr_text)
+        else:
+            prompt = IMAGE_PROMPT_NO_OCR
 
         response = image_inference(processed, prompt)
         result = parse_llm_response(response, source_file, page_or_slide)

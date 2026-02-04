@@ -1,16 +1,17 @@
-version: "3.8"
-
 services:
   cv-uml:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: cv-uml
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data
+      - ../data:/app/data
+      - ../eval_output:/app/eval_output
       - model-cache:/root/.cache/huggingface
     environment:
+      - QWEN_MODEL=Qwen/Qwen2-VL-2B-Instruct
       - CUDA_VISIBLE_DEVICES=0
       - TRANSFORMERS_CACHE=/root/.cache/huggingface
     deploy:
@@ -26,7 +27,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 120s
 
 volumes:
   model-cache:
+    name: cv-uml-model-cache
