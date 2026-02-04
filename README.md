@@ -462,9 +462,7 @@ eval_output/
 ```
 docker/
 ├── Dockerfile          # GPU версия (CUDA)
-├── Dockerfile.cpu      # CPU версия
 ├── docker-compose.yml  # GPU с NVIDIA runtime
-└── docker-compose.cpu.yml  # CPU only
 ```
 
 ### Быстрый старт (GPU)
@@ -484,15 +482,6 @@ docker compose logs -f
 
 # Дождись "Model ready" в логах
 ```
-
-### Быстрый старт (CPU)
-
-```bash
-cd docker
-docker compose -f docker-compose.cpu.yml up -d
-```
-
-> ⚠️ CPU режим значительно медленнее: ~60-120 сек на изображение vs ~10-15 сек на GPU.
 
 ### Тестирование
 
