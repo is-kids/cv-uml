@@ -17,9 +17,10 @@ _processor: Optional[AutoProcessor] = None
 
 
 def get_device() -> str:
-    """Get the best available device."""
     if torch.cuda.is_available():
         return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
     return "cpu"
 
 
@@ -35,13 +36,23 @@ def load_model() -> tuple[Qwen2VLForConditionalGeneration, AutoProcessor]:
     device = get_device()
     logger.info(f"Using device: {device}")
 
-    _processor = AutoProcessor.from_pretrained(MODEL_ID)
-
-    _model = Qwen2VLForConditionalGeneration.from_pretrained(
-        MODEL_ID,
-        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-        device_map="auto" if device == "cuda" else None,
-    )
+    try:
+        _processor = AutoProcessor.from_pretrained(MODEL_ID, local_files_only=True)
+        _model = Qwen2VLForConditionalGeneration.from_pretrained(
+            MODEL_ID,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            device_map="auto" if device == "cuda" else None,
+            local_files_only=True,
+        )
+        logger.info("Loaded from local cache")
+    except OSError:
+        logger.info("Model not in cache, downloading...")
+        _processor = AutoProcessor.from_pretrained(MODEL_ID)
+        _model = Qwen2VLForConditionalGeneration.from_pretrained(
+            MODEL_ID,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            device_map="auto" if device == "cuda" else None,
+        )
 
     if device == "cpu":
         _model = _model.to(device)

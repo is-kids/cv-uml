@@ -1,170 +1,222 @@
 import json
+import logging
 import re
 import sys
 from pathlib import Path
+from difflib import SequenceMatcher
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 from app.llm import warmup
 from app.pipeline import process_path
+
+
+TEST_DIR = "docs/Диаграммы. 2 часть/Диаграммы. 2 часть/test"
+GT_FILE = "docs/Диаграммы. 2 часть/Диаграммы. 2 часть/test/test.txt"
+
 
 def parse_ground_truth(test_file: str) -> dict:
     ground_truth = {}
     current_file = None
     current_steps = []
+    current_roles = []
 
     try:
         with open(test_file, 'r', encoding='utf-8') as f:
             content = f.read()
     except FileNotFoundError:
-        print(f"Ground truth file not found: {test_file}")
+        print(f"File not found: {test_file}")
         return {}
 
     for line in content.split('\n'):
         line = line.strip()
 
-        if not line:
-            if current_file and current_steps:
-                ground_truth[current_file] = current_steps
-            current_file = None
-            current_steps = []
+        if not line or line.startswith('Шаг'):
             continue
 
-        if line.endswith('.png') or line.endswith('.jpg') or line.endswith('.jpeg'):
+        if line.endswith('.png') or line.endswith('.jpg'):
             if current_file and current_steps:
-                ground_truth[current_file] = current_steps
+                ground_truth[current_file] = {
+                    'steps': current_steps,
+                    'roles': current_roles
+                }
             current_file = line
             current_steps = []
-        elif re.match(r'^\d+[\.\)]\s*', line):
-            current_steps.append(line)
+            current_roles = []
+            continue
+
+        match = re.match(r'^(\d+)[\.\)]\s*(.+?)(?:\s*\|\s*(.+))?$', line)
+        if match:
+            step_num = int(match.group(1))
+            action = match.group(2).strip()
+            role = match.group(3).strip() if match.group(3) else None
+
+            current_steps.append({
+                'number': step_num,
+                'action': action,
+                'role': role
+            })
+            if role:
+                current_roles.append(role)
 
     if current_file and current_steps:
-        ground_truth[current_file] = current_steps
+        ground_truth[current_file] = {
+            'steps': current_steps,
+            'roles': current_roles
+        }
 
     return ground_truth
 
-def find_result_for_file(results: list, filename: str) -> dict:
+
+def normalize_text(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', '', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+
+def text_similarity(text1: str, text2: str) -> float:
+    t1 = normalize_text(text1)
+    t2 = normalize_text(text2)
+    return SequenceMatcher(None, t1, t2).ratio()
+
+
+def calculate_metrics(extracted: list, ground_truth: list, threshold: float = 0.5) -> dict:
+    if not ground_truth:
+        return {'precision': 1.0 if not extracted else 0.0, 'recall': 1.0, 'f1': 1.0}
+    if not extracted:
+        return {'precision': 0.0, 'recall': 0.0, 'f1': 0.0}
+
+    gt_matched = set()
+    ex_matched = set()
+
+    for i, ex_step in enumerate(extracted):
+        ex_action = ex_step.get('action', '')
+        best_match = -1
+        best_score = 0
+
+        for j, gt_step in enumerate(ground_truth):
+            if j in gt_matched:
+                continue
+            gt_action = gt_step.get('action', '')
+            score = text_similarity(ex_action, gt_action)
+            if score > best_score:
+                best_score = score
+                best_match = j
+
+        if best_score >= threshold:
+            gt_matched.add(best_match)
+            ex_matched.add(i)
+
+    precision = len(ex_matched) / len(extracted) if extracted else 0
+    recall = len(gt_matched) / len(ground_truth) if ground_truth else 0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+
+    return {
+        'precision': precision,
+        'recall': recall,
+        'f1': f1,
+        'matched': len(gt_matched),
+        'gt_total': len(ground_truth),
+        'extracted_total': len(extracted)
+    }
+
+
+def find_result(results: list, filename: str):
     for result in results:
-        source = Path(result['source_file']).name
-        if source == filename or filename in result['source_file']:
+        source = Path(result.get('source_file', '')).name
+        if source == filename:
             return result
     return None
 
-def calculate_step_similarity(extracted_steps: list, gt_steps: list) -> float:
-    if not gt_steps:
-        return 1.0 if not extracted_steps else 0.0
-    if not extracted_steps:
-        return 0.0
 
-    extracted_text = ' '.join(s.get('action', '') for s in extracted_steps).lower()
-    gt_text = ' '.join(gt_steps).lower()
+def evaluate(results: list, ground_truth: dict):
+    print("=" * 70)
+    print("CV-UML EVALUATION")
+    print("=" * 70)
 
-    extracted_words = set(extracted_text.split())
-    gt_words = set(gt_text.split())
+    all_metrics = []
+    total_gt = 0
+    total_ex = 0
 
-    if not gt_words:
-        return 0.0
+    print(f"\n{'File':<15} {'GT':<5} {'Ex':<5} {'P':<8} {'R':<8} {'F1':<8}")
+    print("-" * 70)
 
-    intersection = extracted_words & gt_words
-    return len(intersection) / len(gt_words)
+    for filename, gt_data in ground_truth.items():
+        gt_steps = gt_data['steps']
+        total_gt += len(gt_steps)
 
-def evaluate_results(results_file: str, ground_truth_file: str):
-    print("=" * 60)
-    print("CV-UML Evaluation")
-    print("=" * 60)
+        result = find_result(results, filename)
 
+        if result:
+            extracted = result.get('steps', [])
+            total_ex += len(extracted)
+            metrics = calculate_metrics(extracted, gt_steps)
+            all_metrics.append(metrics)
+
+            print(f"{filename:<15} {len(gt_steps):<5} {len(extracted):<5} "
+                  f"{metrics['precision']:.2f}     {metrics['recall']:.2f}     {metrics['f1']:.2f}")
+        else:
+            print(f"{filename:<15} {len(gt_steps):<5} {'---':<5} {'---':<8} {'---':<8} {'---':<8}")
+
+    print("-" * 70)
+    print("\nSUMMARY")
+    print("=" * 70)
+
+    if all_metrics:
+        avg_p = sum(m['precision'] for m in all_metrics) / len(all_metrics)
+        avg_r = sum(m['recall'] for m in all_metrics) / len(all_metrics)
+        avg_f1 = sum(m['f1'] for m in all_metrics) / len(all_metrics)
+
+        print(f"Files evaluated:    {len(all_metrics)}/{len(ground_truth)}")
+        print(f"Total GT steps:     {total_gt}")
+        print(f"Total extracted:    {total_ex}")
+        print(f"Avg Precision:      {avg_p:.2f}")
+        print(f"Avg Recall:         {avg_r:.2f}")
+        print(f"Avg F1:             {avg_f1:.2f}")
+
+        return {'precision': avg_p, 'recall': avg_r, 'f1': avg_f1}
+
+    return None
+
+
+def run_full_evaluation(test_dir: str = TEST_DIR, gt_file: str = GT_FILE):
+    print("Loading model...")
+    warmup()
+
+    print(f"\nProcessing {test_dir}...")
+    results = process_path(test_dir)
+
+    results_data = [r.model_dump() for r in results]
+
+    output_file = "eval_results.json"
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump({'results': results_data}, f, indent=2, ensure_ascii=False)
+    print(f"Results saved to {output_file}")
+
+    gt = parse_ground_truth(gt_file)
+    return evaluate(results_data, gt)
+
+
+def evaluate_from_file(results_file: str, gt_file: str = GT_FILE):
     with open(results_file) as f:
         data = json.load(f)
 
     results = data.get('results', data) if isinstance(data, dict) else data
+    gt = parse_ground_truth(gt_file)
 
-    gt = parse_ground_truth(ground_truth_file)
+    return evaluate(results, gt)
 
-    if not gt:
-        print("No ground truth data found!")
-        return
-
-    print(f"\nGround truth: {len(gt)} files")
-    print(f"Results: {len(results)} extractions")
-
-    total_gt_steps = 0
-    total_extracted_steps = 0
-    matched_files = 0
-    total_similarity = 0.0
-
-    print(f"\n{'File':<30} {'GT Steps':<10} {'Extracted':<10} {'Similarity':<10}")
-    print("-" * 60)
-
-    for filename, gt_steps in gt.items():
-        total_gt_steps += len(gt_steps)
-
-        result = find_result_for_file(results, filename)
-
-        if result:
-            matched_files += 1
-            extracted = result.get('steps', [])
-            total_extracted_steps += len(extracted)
-
-            similarity = calculate_step_similarity(extracted, gt_steps)
-            total_similarity += similarity
-
-            print(f"{filename:<30} {len(gt_steps):<10} {len(extracted):<10} {similarity:.2f}")
-        else:
-            print(f"{filename:<30} {len(gt_steps):<10} {'N/A':<10} {'N/A':<10}")
-
-    print("-" * 60)
-
-    print(f"\n{'='*60}")
-    print("METRICS")
-    print(f"{'='*60}")
-    print(f"Files matched:     {matched_files}/{len(gt)} ({matched_files/len(gt)*100:.1f}%)")
-    print(f"Total GT steps:    {total_gt_steps}")
-    print(f"Total extracted:   {total_extracted_steps}")
-
-    if total_gt_steps > 0:
-        coverage = total_extracted_steps / total_gt_steps * 100
-        print(f"Step coverage:     {coverage:.1f}%")
-
-    if matched_files > 0:
-        avg_similarity = total_similarity / matched_files
-        print(f"Avg similarity:    {avg_similarity:.2f}")
-
-def run_evaluation(input_dir: str, ground_truth_file: str, output_file: str = "eval_results.json"):
-    print("Loading model...")
-    warmup()
-
-    print(f"\nProcessing {input_dir}...")
-    results = process_path(input_dir)
-
-    results_data = {
-        'total': len(results),
-        'results': [r.model_dump() for r in results]
-    }
-
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(results_data, f, indent=2, ensure_ascii=False)
-
-    print(f"Results saved to {output_file}")
-
-    evaluate_results(output_file, ground_truth_file)
-
-def main():
-    if len(sys.argv) >= 3:
-        results_file = sys.argv[1]
-        gt_file = sys.argv[2]
-        evaluate_results(results_file, gt_file)
-    elif len(sys.argv) == 2:
-        if sys.argv[1] == '--run':
-            run_evaluation(
-                "docs/Диаграммы. 2 часть/Диаграммы. 2 часть/Picture",
-                "docs/Диаграммы. 2 часть/Диаграммы. 2 часть/test/test.txt",
-                "eval_results.json"
-            )
-        else:
-            evaluate_results(sys.argv[1], "docs/Диаграммы. 2 часть/Диаграммы. 2 часть/test/test.txt")
-    else:
-        print("Usage:")
-        print("  python evaluate.py <results.json> <ground_truth.txt>")
-        print("  python evaluate.py <results.json>  # uses docs/test.txt")
-        print("  python evaluate.py --run           # run extraction + evaluate")
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) >= 2:
+        if sys.argv[1] == '--run':
+            run_full_evaluation()
+        else:
+            gt = sys.argv[2] if len(sys.argv) >= 3 else GT_FILE
+            evaluate_from_file(sys.argv[1], gt)
+    else:
+        print("Usage:")
+        print("  python evaluate.py --run                    Run extraction + evaluation")
+        print("  python evaluate.py results.json             Evaluate existing results")
+        print("  python evaluate.py results.json gt.txt      Custom ground truth file")

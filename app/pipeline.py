@@ -182,9 +182,13 @@ def process_path(path: Union[str, Path]) -> list[ExtractionResult]:
 
     elif path.is_dir():
         results = []
-        for file_input in scan_directory(path):
+        files = list(scan_directory(path))
+        total = len(files)
+        for i, file_input in enumerate(files, 1):
+            logger.info(f"[{i}/{total}] Processing {file_input.path.name}...")
             file_results = process_file(file_input)
             results.extend(file_results)
+            logger.info(f"[{i}/{total}] Done: {file_input.path.name} -> {len(file_results)} result(s)")
         return results
 
     else:
