@@ -45,7 +45,8 @@ async def startup_event():
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok", "model": "Qwen2-VL-2B-Instruct"}
+    from app.llm import MODEL_ID
+    return {"status": "ok", "model": MODEL_ID}
 
 
 def format_result_text(result: ExtractionResult) -> str:
@@ -88,7 +89,6 @@ def format_result_text(result: ExtractionResult) -> str:
 
 
 def format_result_html(result: ExtractionResult) -> str:
-    """Format result as HTML page."""
     html = f"""<!DOCTYPE html>
 <html>
 <head>

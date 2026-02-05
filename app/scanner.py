@@ -11,10 +11,6 @@ logger = logging.getLogger(__name__)
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff"}
 SUPPORTED_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff",
-    ".svg",
-    ".pdf",
-    ".pptx", ".ppt",
-    ".docx", ".doc",
     ".drawio", ".dio",
     ".bpmn",
     ".zip", ".rar", ".7z",

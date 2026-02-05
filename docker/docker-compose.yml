@@ -8,12 +8,15 @@ services:
       - "8000:8000"
     volumes:
       - ../data:/app/data
+      - ../docs:/app/docs
       - ../eval_output:/app/eval_output
       - model-cache:/root/.cache/huggingface
     environment:
       - QWEN_MODEL=Qwen/Qwen2-VL-2B-Instruct
       - CUDA_VISIBLE_DEVICES=0
       - TRANSFORMERS_CACHE=/root/.cache/huggingface
+      - USE_4BIT=1
+      - USE_OCR=1
     deploy:
       resources:
         reservations:

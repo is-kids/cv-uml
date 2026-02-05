@@ -16,16 +16,6 @@ EXTENSION_MAP = {
     ".tiff": FileType.IMAGE,
     ".tif": FileType.IMAGE,
 
-    ".svg": FileType.SVG,
-
-    ".pdf": FileType.PDF,
-
-    ".pptx": FileType.PPTX,
-    ".ppt": FileType.PPTX,
-
-    ".docx": FileType.DOCX,
-    ".doc": FileType.DOCX,
-
     ".drawio": FileType.DRAWIO,
     ".dio": FileType.DRAWIO,
     ".xml": FileType.DRAWIO,
@@ -65,29 +55,16 @@ def is_supported(path: Union[str, Path]) -> bool:
 
 
 def requires_conversion(file_type: FileType) -> bool:
-    return file_type in {
-        FileType.SVG,
-        FileType.PDF,
-        FileType.PPTX,
-        FileType.DOCX,
-        FileType.ARCHIVE,
-    }
+    return file_type == FileType.ARCHIVE
 
 
 def requires_text_extraction(file_type: FileType) -> bool:
-    return file_type in {
-        FileType.DRAWIO,
-        FileType.BPMN,
-    }
+    return file_type in {FileType.DRAWIO, FileType.BPMN}
 
 
 def get_handler_name(file_type: FileType) -> str:
     handlers = {
         FileType.IMAGE: "image_inference",
-        FileType.SVG: "svg_to_image",
-        FileType.PDF: "pdf_to_images",
-        FileType.PPTX: "pptx_to_images",
-        FileType.DOCX: "docx_to_images",
         FileType.DRAWIO: "drawio_to_text",
         FileType.BPMN: "bpmn_to_text",
         FileType.ARCHIVE: "extract_and_process",

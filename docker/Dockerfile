@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -38,7 +38,7 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
     pip3 install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
-COPY main.py evaluate.py extract.py ./
+COPY main.py evaluate.py extract.py test_formats.py ./
 
 RUN ln -sf /opt/plantuml.jar /app/plantuml.jar
 

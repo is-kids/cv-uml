@@ -1,5 +1,3 @@
-"""Image preprocessing utilities."""
-
 import logging
 from typing import Optional
 
@@ -7,8 +5,8 @@ from PIL import Image, ImageEnhance, ImageOps
 
 logger = logging.getLogger(__name__)
 
-# Default max dimension for resizing
-MAX_DIMENSION = 1280
+# Default max dimension for resizing (smaller = faster inference)
+MAX_DIMENSION = 768
 MIN_DIMENSION = 224
 
 
@@ -17,17 +15,6 @@ def resize_image(
     max_dim: int = MAX_DIMENSION,
     min_dim: int = MIN_DIMENSION,
 ) -> Image.Image:
-    """
-    Resize image to fit within max dimensions while maintaining aspect ratio.
-
-    Args:
-        image: PIL Image to resize
-        max_dim: Maximum dimension (width or height)
-        min_dim: Minimum dimension (will upscale if smaller)
-
-    Returns:
-        Resized PIL Image
-    """
     width, height = image.size
 
     # Check if resize is needed
@@ -53,46 +40,16 @@ def resize_image(
 
 
 def enhance_contrast(image: Image.Image, factor: float = 1.3) -> Image.Image:
-    """
-    Enhance image contrast.
-
-    Args:
-        image: PIL Image to enhance
-        factor: Contrast enhancement factor (1.0 = no change)
-
-    Returns:
-        Enhanced PIL Image
-    """
     enhancer = ImageEnhance.Contrast(image)
     return enhancer.enhance(factor)
 
 
 def enhance_sharpness(image: Image.Image, factor: float = 1.2) -> Image.Image:
-    """
-    Enhance image sharpness.
-
-    Args:
-        image: PIL Image to enhance
-        factor: Sharpness enhancement factor (1.0 = no change)
-
-    Returns:
-        Enhanced PIL Image
-    """
     enhancer = ImageEnhance.Sharpness(image)
     return enhancer.enhance(factor)
 
 
 def is_dark_background(image: Image.Image, threshold: float = 0.4) -> bool:
-    """
-    Detect if image has a dark background.
-
-    Args:
-        image: PIL Image to analyze
-        threshold: Brightness threshold (0-1), below which is considered dark
-
-    Returns:
-        True if image has dark background
-    """
     # Convert to grayscale
     gray = image.convert("L")
 
@@ -122,15 +79,6 @@ def is_dark_background(image: Image.Image, threshold: float = 0.4) -> bool:
 
 
 def invert_dark_background(image: Image.Image) -> Image.Image:
-    """
-    Invert image if it has a dark background.
-
-    Args:
-        image: PIL Image to potentially invert
-
-    Returns:
-        Original or inverted PIL Image
-    """
     if is_dark_background(image):
         logger.debug("Dark background detected, inverting image")
         # Handle RGBA images
@@ -151,15 +99,6 @@ def invert_dark_background(image: Image.Image) -> Image.Image:
 
 
 def convert_to_rgb(image: Image.Image) -> Image.Image:
-    """
-    Convert image to RGB mode if necessary.
-
-    Args:
-        image: PIL Image
-
-    Returns:
-        RGB PIL Image
-    """
     if image.mode == "RGBA":
         # Create white background
         background = Image.new("RGB", image.size, (255, 255, 255))
@@ -177,19 +116,6 @@ def preprocess_image(
     handle_dark: bool = True,
     max_dim: int = MAX_DIMENSION,
 ) -> Image.Image:
-    """
-    Apply full preprocessing pipeline to an image.
-
-    Args:
-        image: PIL Image to preprocess
-        resize: Whether to resize the image
-        enhance: Whether to enhance contrast/sharpness
-        handle_dark: Whether to invert dark backgrounds
-        max_dim: Maximum dimension for resizing
-
-    Returns:
-        Preprocessed PIL Image
-    """
     result = image.copy()
 
     # Handle dark backgrounds first (before other processing)
@@ -215,16 +141,6 @@ def load_and_preprocess(
     path: str,
     **kwargs,
 ) -> Optional[Image.Image]:
-    """
-    Load an image from path and preprocess it.
-
-    Args:
-        path: Path to image file
-        **kwargs: Additional arguments for preprocess_image
-
-    Returns:
-        Preprocessed PIL Image or None if loading failed
-    """
     try:
         image = Image.open(path)
         return preprocess_image(image, **kwargs)

@@ -1,5 +1,3 @@
-"""LLM module for Qwen2-VL inference."""
-
 import logging
 import os
 from functools import lru_cache
@@ -7,11 +5,12 @@ from typing import Optional
 
 import torch
 from PIL import Image
-from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
+from transformers import AutoProcessor, Qwen2VLForConditionalGeneration, BitsAndBytesConfig
 
 logger = logging.getLogger(__name__)
 
-MODEL_ID = os.environ.get("QWEN_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
+MODEL_ID = os.environ.get("QWEN_MODEL", "Qwen/Qwen2-VL-2B-Instruct")
+USE_4BIT = os.environ.get("USE_4BIT", "1") == "1"
 
 _model: Optional[Qwen2VLForConditionalGeneration] = None
 _processor: Optional[AutoProcessor] = None
@@ -27,7 +26,6 @@ def get_device() -> str:
 
 @lru_cache(maxsize=1)
 def load_model() -> tuple[Qwen2VLForConditionalGeneration, AutoProcessor]:
-    """Load and cache the Qwen2-VL model and processor."""
     global _model, _processor
 
     if _model is not None and _processor is not None:
@@ -35,14 +33,25 @@ def load_model() -> tuple[Qwen2VLForConditionalGeneration, AutoProcessor]:
 
     logger.info(f"Loading model {MODEL_ID}...")
     device = get_device()
-    logger.info(f"Using device: {device}")
+    logger.info(f"Using device: {device}, 4-bit: {USE_4BIT}")
+
+    # 4-bit quantization config for faster inference
+    quantization_config = None
+    if USE_4BIT and device == "cuda":
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_quant_type="nf4",
+        )
+        logger.info("Using 4-bit quantization")
 
     try:
         _processor = AutoProcessor.from_pretrained(MODEL_ID, local_files_only=True)
         _model = Qwen2VLForConditionalGeneration.from_pretrained(
             MODEL_ID,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-            device_map="auto" if device == "cuda" else None,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            quantization_config=quantization_config,
             local_files_only=True,
         )
         logger.info("Loaded from local cache")
@@ -51,29 +60,19 @@ def load_model() -> tuple[Qwen2VLForConditionalGeneration, AutoProcessor]:
         _processor = AutoProcessor.from_pretrained(MODEL_ID)
         _model = Qwen2VLForConditionalGeneration.from_pretrained(
             MODEL_ID,
-            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-            device_map="auto" if device == "cuda" else None,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            quantization_config=quantization_config,
         )
 
-    if device == "cpu":
+    if device == "cpu" and not USE_4BIT:
         _model = _model.to(device)
 
     logger.info("Model loaded successfully")
     return _model, _processor
 
 
-def image_inference(image: Image.Image, prompt: str, max_tokens: int = 2048) -> str:
-    """
-    Run inference on an image with a text prompt.
-
-    Args:
-        image: PIL Image to analyze
-        prompt: Text prompt describing what to extract
-        max_tokens: Maximum tokens to generate
-
-    Returns:
-        Generated text response
-    """
+def image_inference(image: Image.Image, prompt: str, max_tokens: int = 512) -> str:
     model, processor = load_model()
 
     messages = [
@@ -134,18 +133,7 @@ def image_inference(image: Image.Image, prompt: str, max_tokens: int = 2048) -> 
     return output_text.strip()
 
 
-def text_inference(text: str, prompt: str, max_tokens: int = 2048) -> str:
-    """
-    Run inference on text input (for XML/text-based diagrams).
-
-    Args:
-        text: Text content to analyze
-        prompt: Text prompt describing what to extract
-        max_tokens: Maximum tokens to generate
-
-    Returns:
-        Generated text response
-    """
+def text_inference(text: str, prompt: str, max_tokens: int = 512) -> str:
     model, processor = load_model()
 
     # For text-only input, combine content and prompt
@@ -193,12 +181,6 @@ def text_inference(text: str, prompt: str, max_tokens: int = 2048) -> str:
 
 
 def warmup() -> bool:
-    """
-    Warm up the model by loading it.
-
-    Returns:
-        True if successful, False otherwise
-    """
     try:
         load_model()
         return True

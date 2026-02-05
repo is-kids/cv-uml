@@ -1,5 +1,3 @@
-"""Post-processing utilities for LLM output parsing."""
-
 import json
 import logging
 import re
@@ -11,17 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 def extract_json_from_text(text: str) -> Optional[str]:
-    """
-    Extract JSON object from text that may contain other content.
-
-    Args:
-        text: Text potentially containing JSON
-
-    Returns:
-        Extracted JSON string or None
-    """
-    # Try to find JSON object
-    # Look for { ... } pattern
     brace_count = 0
     start_idx = None
     end_idx = None
@@ -44,22 +31,11 @@ def extract_json_from_text(text: str) -> Optional[str]:
 
 
 def parse_json_response(text: str) -> Optional[dict]:
-    """
-    Parse JSON from LLM response.
-
-    Args:
-        text: LLM response text
-
-    Returns:
-        Parsed dictionary or None
-    """
-    # First try direct parsing
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    # Try to extract JSON from text
     json_str = extract_json_from_text(text)
     if json_str:
         try:
@@ -67,8 +43,6 @@ def parse_json_response(text: str) -> Optional[dict]:
         except json.JSONDecodeError:
             pass
 
-    # Try fixing common issues
-    # Remove trailing commas
     fixed = re.sub(r",\s*([}\]])", r"\1", text)
     try:
         return json.loads(fixed)
@@ -86,34 +60,29 @@ def parse_json_response(text: str) -> Optional[dict]:
     return None
 
 
+def is_invalid_action(action: str) -> bool:
+    action = action.strip()
+    if re.match(r"^[\d\.\-]+$", action):
+        return True
+    if re.match(r"^\d+[-–]\d+(\.\d+)?$", action):
+        return True
+    if len(action) < 3:
+        return True
+    return False
+
+
 def parse_simple_format(text: str) -> list[DiagramStep]:
-    """
-    Parse simple line-by-line step format as fallback.
-
-    Expected format:
-    1. Actor -> action -> Target
-    or
-    1. action description
-
-    Args:
-        text: Text with numbered steps
-
-    Returns:
-        List of DiagramStep objects
-    """
     steps = []
 
-    # Pattern for: number. actor -> action -> target
     arrow_pattern = r"(\d+)\.\s*([^->]+?)\s*->\s*(.+?)\s*->\s*([^->]+?)(?:\n|$)"
-
-    # Pattern for: number. action description
     simple_pattern = r"(\d+)\.\s*(.+?)(?:\n|$)"
 
-    # Try arrow pattern first
     arrow_matches = re.findall(arrow_pattern, text)
     if arrow_matches:
         for match in arrow_matches:
             num, actor, action, target = match
+            if is_invalid_action(action):
+                continue
             actor = actor.strip() if actor.strip() != "?" else None
             target = target.strip() if target.strip() != "?" else None
             steps.append(
@@ -126,10 +95,11 @@ def parse_simple_format(text: str) -> list[DiagramStep]:
             )
         return steps
 
-    # Fall back to simple pattern
     simple_matches = re.findall(simple_pattern, text)
     for match in simple_matches:
         num, action = match
+        if is_invalid_action(action):
+            continue
         steps.append(
             DiagramStep(
                 number=int(num),
@@ -145,29 +115,20 @@ def parse_llm_response(
     source_file: str,
     page_or_slide: Optional[int] = None,
 ) -> ExtractionResult:
-    """
-    Parse LLM response into ExtractionResult.
-
-    Args:
-        text: LLM response text
-        source_file: Source file path
-        page_or_slide: Page or slide number
-
-    Returns:
-        ExtractionResult object
-    """
-    # Try JSON parsing first
     data = parse_json_response(text)
 
     if data and isinstance(data, dict):
         steps = []
         for i, step_data in enumerate(data.get("steps", [])):
             if isinstance(step_data, dict):
+                action = step_data.get("action", "Unknown")
+                if is_invalid_action(action):
+                    continue
                 steps.append(
                     DiagramStep(
                         number=step_data.get("number", i + 1),
                         actor=step_data.get("actor"),
-                        action=step_data.get("action", "Unknown"),
+                        action=action,
                         target=step_data.get("target"),
                         note=step_data.get("note"),
                     )
@@ -181,7 +142,6 @@ def parse_llm_response(
             confidence=float(data.get("confidence", 0.8)),
         )
 
-    # Fall back to simple format parsing
     logger.info("Falling back to simple format parsing")
     steps = parse_simple_format(text)
 
@@ -190,10 +150,9 @@ def parse_llm_response(
             source_file=source_file,
             page_or_slide=page_or_slide,
             steps=steps,
-            confidence=0.5,  # Lower confidence for regex parsing
+            confidence=0.5,
         )
 
-    # No steps found
     return ExtractionResult(
         source_file=source_file,
         page_or_slide=page_or_slide,
@@ -204,25 +163,17 @@ def parse_llm_response(
 
 
 def validate_steps(steps: list[DiagramStep]) -> list[DiagramStep]:
-    """
-    Validate and clean up extracted steps.
-
-    Args:
-        steps: List of steps to validate
-
-    Returns:
-        Validated list of steps
-    """
     valid_steps = []
 
     for step in steps:
-        # Skip empty actions
         if not step.action or not step.action.strip():
             continue
 
-        # Clean up action text
         action = step.action.strip()
-        action = re.sub(r"\s+", " ", action)  # Normalize whitespace
+        action = re.sub(r"\s+", " ", action)
+
+        if is_invalid_action(action):
+            continue
 
         valid_steps.append(
             DiagramStep(
@@ -234,7 +185,6 @@ def validate_steps(steps: list[DiagramStep]) -> list[DiagramStep]:
             )
         )
 
-    # Re-number steps
     for i, step in enumerate(valid_steps):
         step.number = i + 1
 
@@ -242,15 +192,6 @@ def validate_steps(steps: list[DiagramStep]) -> list[DiagramStep]:
 
 
 def merge_results(results: list[ExtractionResult]) -> ExtractionResult:
-    """
-    Merge multiple extraction results into one.
-
-    Args:
-        results: List of results to merge
-
-    Returns:
-        Merged ExtractionResult
-    """
     if not results:
         return ExtractionResult(
             source_file="",
@@ -261,16 +202,13 @@ def merge_results(results: list[ExtractionResult]) -> ExtractionResult:
     if len(results) == 1:
         return results[0]
 
-    # Combine all steps
     all_steps = []
     for result in results:
         all_steps.extend(result.steps)
 
-    # Re-number
     for i, step in enumerate(all_steps):
         step.number = i + 1
 
-    # Use first result's metadata
     first = results[0]
 
     return ExtractionResult(

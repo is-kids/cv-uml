@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 from typing import Optional, Union
 
@@ -6,12 +7,8 @@ from PIL import Image
 
 from app.converters import (
     extract_archive,
-    extract_docx_images,
-    extract_pptx_images,
     parse_bpmn,
     parse_drawio,
-    render_pdf_pages,
-    render_svg,
 )
 from app.llm import image_inference, text_inference
 from app.models import ExtractionResult, FileInput, FileType
@@ -24,6 +21,9 @@ from app.scanner import scan_directory
 
 logger = logging.getLogger(__name__)
 
+# OCR enabled by default for quality (set USE_OCR=0 to disable)
+USE_OCR = os.environ.get("USE_OCR", "1") == "1"
+
 
 def process_image(
     image: Image.Image,
@@ -34,11 +34,11 @@ def process_image(
     try:
         processed = preprocess_image(image)
 
-        # Extract text with OCR if available
+        # Extract text with OCR if enabled and available (use processed image for speed)
         ocr_text = ""
-        if is_tesseract_available():
+        if USE_OCR and is_tesseract_available():
             logger.info("Running OCR...")
-            ocr_text = extract_text(image) or ""
+            ocr_text = extract_text(processed) or ""
             if ocr_text:
                 logger.info(f"OCR extracted {len(ocr_text)} chars")
 
@@ -52,12 +52,6 @@ def process_image(
 
         response = image_inference(processed, prompt)
         result = parse_llm_response(response, source_file, page_or_slide)
-
-        if not result.steps and not use_simple_prompt:
-            logger.info("Retrying with simple prompt")
-            response = image_inference(processed, SIMPLE_IMAGE_PROMPT)
-            result = parse_llm_response(response, source_file, page_or_slide)
-
         result.steps = validate_steps(result.steps)
         return result
 
@@ -116,45 +110,6 @@ def process_file(file_input: FileInput) -> list[ExtractionResult]:
             if image:
                 return [process_image(image, source)]
             return [ExtractionResult(source_file=source, error="Failed to load image")]
-
-        elif file_type == FileType.SVG:
-            image = render_svg(path)
-            if image:
-                return [process_image(image, source)]
-            return [ExtractionResult(source_file=source, error="Failed to render SVG")]
-
-        elif file_type == FileType.PDF:
-            pages = render_pdf_pages(path)
-            if not pages:
-                return [ExtractionResult(source_file=source, error="Failed to render PDF")]
-
-            results = []
-            for page_num, image in pages:
-                result = process_image(image, source, page_or_slide=page_num)
-                results.append(result)
-            return results
-
-        elif file_type == FileType.PPTX:
-            images = extract_pptx_images(path)
-            if not images:
-                return [ExtractionResult(source_file=source, error="No images in PPTX")]
-
-            results = []
-            for slide_num, image in images:
-                result = process_image(image, source, page_or_slide=slide_num)
-                results.append(result)
-            return results
-
-        elif file_type == FileType.DOCX:
-            images = extract_docx_images(path)
-            if not images:
-                return [ExtractionResult(source_file=source, error="No images in DOCX")]
-
-            results = []
-            for img_num, image in images:
-                result = process_image(image, source, page_or_slide=img_num)
-                results.append(result)
-            return results
 
         elif file_type == FileType.DRAWIO:
             text = parse_drawio(path)
