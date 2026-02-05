@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CV-UML</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #1a1a2e;
+            --card: #16213e;
+            --el: #0f3460;
+            --accent: #00d4ff;
+            --text: #eee;
+            --dim: #888;
+            --actor: #ffaa00;
+            --ok: #00ff88;
+            --err: #ff4444;
+            --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+
+        header { text-align: center; padding: 30px 0 10px; }
+        header h1 { color: var(--accent); font-size: 28px; }
+        header p { color: var(--dim); font-size: 14px; margin-top: 4px; }
+
+        nav { display: flex; gap: 8px; justify-content: center; margin: 20px 0; }
+        nav button {
+            padding: 10px 28px; border: 1px solid var(--el); border-radius: 6px;
+            background: var(--card); color: var(--dim); font-size: 14px; cursor: pointer;
+            transition: all .2s;
+        }
+        nav button.active { background: var(--el); color: var(--accent); border-color: var(--accent); }
+        nav button:hover { border-color: var(--accent); color: var(--text); }
+
+        .tab { display: none; }
+        .tab.active { display: block; }
+
+        .upload-area {
+            border: 2px dashed #334; border-radius: 12px; padding: 50px 20px;
+            text-align: center; cursor: pointer; transition: all .2s;
+        }
+        .upload-area:hover, .upload-area.dragover { border-color: var(--accent); background: rgba(0,212,255,.05); }
+        .upload-area h3 { color: var(--text); margin-bottom: 8px; }
+        .upload-area p { color: var(--dim); font-size: 13px; }
+        .upload-area input { display: none; }
+
+        .loading { text-align: center; padding: 40px; display: none; }
+        .loading.active { display: block; }
+        .spinner {
+            width: 40px; height: 40px; border: 3px solid var(--el); border-top-color: var(--accent);
+            border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading p { color: var(--dim); }
+        .timer { color: var(--accent); font-weight: bold; }
+
+        .results { margin-top: 20px; }
+
+        .result-card {
+            background: var(--card); border-radius: 8px; padding: 20px; margin-bottom: 16px;
+            border-left: 3px solid var(--accent);
+        }
+        .result-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+        .result-title { font-weight: bold; font-size: 16px; }
+        .badge {
+            background: var(--el); color: var(--accent); padding: 2px 10px;
+            border-radius: 12px; font-size: 12px;
+        }
+        .confidence {
+            margin-left: auto; font-size: 13px;
+        }
+        .conf-bar { display: inline-block; width: 60px; height: 6px; background: var(--el); border-radius: 3px; vertical-align: middle; margin-left: 6px; }
+        .conf-fill { height: 100%; border-radius: 3px; }
+
+        .step {
+            background: var(--el); border-radius: 6px; padding: 10px 14px; margin: 6px 0;
+            border-left: 3px solid var(--accent); font-size: 14px;
+        }
+        .step-num { color: var(--accent); font-weight: bold; margin-right: 8px; }
+        .step-actor { color: var(--actor); margin-right: 6px; }
+        .step-target { color: var(--dim); margin-left: 6px; }
+        .step-note { color: var(--dim); font-style: italic; font-size: 12px; margin-top: 4px; }
+
+        .step-count { color: var(--dim); font-size: 13px; margin-top: 10px; }
+
+        .error-box { background: #4a1a1a; border-left: 3px solid var(--err); border-radius: 6px; padding: 12px 16px; color: var(--err); margin: 10px 0; }
+
+        .btn-generate-from {
+            margin-top: 12px; padding: 6px 14px; background: var(--el); color: var(--accent);
+            border: 1px solid var(--accent); border-radius: 6px; cursor: pointer; font-size: 12px;
+        }
+        .btn-generate-from:hover { background: var(--accent); color: var(--bg); }
+
+        .gen-form { background: var(--card); border-radius: 8px; padding: 20px; }
+        .gen-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
+        .gen-row input, .gen-row select {
+            padding: 8px 10px; background: var(--el); border: 1px solid #334; border-radius: 4px;
+            color: var(--text); font-size: 13px;
+        }
+        .gen-row input::placeholder { color: #556; }
+        .gen-row .num { width: 40px; text-align: center; }
+        .gen-row .actor, .gen-row .target, .gen-row .note { width: 120px; }
+        .gen-row .action { flex: 1; }
+        .gen-row .remove-btn {
+            background: none; border: none; color: var(--err); cursor: pointer; font-size: 18px; padding: 0 6px;
+        }
+        .gen-top { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+        .gen-top select, .gen-top input { padding: 8px 12px; background: var(--el); border: 1px solid #334; border-radius: 4px; color: var(--text); font-size: 13px; }
+        .gen-top input { flex: 1; min-width: 200px; }
+        .gen-actions { display: flex; gap: 10px; margin-top: 12px; }
+        .btn {
+            padding: 10px 24px; border: none; border-radius: 6px; cursor: pointer;
+            font-size: 14px; transition: all .2s;
+        }
+        .btn-primary { background: var(--accent); color: var(--bg); font-weight: bold; }
+        .btn-primary:hover { opacity: .85; }
+        .btn-secondary { background: var(--el); color: var(--text); border: 1px solid #334; }
+        .btn-secondary:hover { border-color: var(--accent); }
+
+        .gen-result { margin-top: 20px; }
+        .code-block {
+            background: var(--el); border-radius: 6px; padding: 16px; position: relative;
+            font-family: 'Consolas', 'Monaco', monospace; font-size: 13px;
+            white-space: pre-wrap; word-break: break-all; overflow-x: auto;
+        }
+        .copy-btn {
+            position: absolute; top: 8px; right: 8px; background: var(--card); border: 1px solid #334;
+            color: var(--dim); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;
+        }
+        .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+        .gen-image { margin-top: 16px; text-align: center; }
+        .gen-image img { max-width: 100%; border-radius: 8px; background: #fff; cursor: pointer; }
+        .img-actions { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+        .img-actions button {
+            padding: 6px 14px; background: var(--el); color: var(--text); border: 1px solid #334;
+            border-radius: 4px; cursor: pointer; font-size: 12px;
+        }
+        .img-actions button:hover { border-color: var(--accent); color: var(--accent); }
+        .fullscreen-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,.9); z-index: 1000; cursor: pointer;
+            justify-content: center; align-items: center;
+        }
+        .fullscreen-overlay.active { display: flex; }
+        .fullscreen-overlay img { max-width: 95%; max-height: 95%; background: #fff; border-radius: 8px; }
+
+        .labels { display: flex; gap: 8px; margin-bottom: 8px; padding: 0 4px; }
+        .labels span { font-size: 11px; color: var(--dim); }
+        .labels .num { width: 40px; }
+        .labels .actor, .labels .target, .labels .note { width: 120px; }
+        .labels .action { flex: 1; }
+        .labels .ph { width: 30px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>CV-UML</h1>
+            <p>Извлечение алгоритмов из диаграмм</p>
+        </header>
+
+        <nav>
+            <button class="active" onclick="switchTab('extract')">Извлечение</button>
+            <button onclick="switchTab('generate')">Генерация</button>
+        </nav>
+
+        <div id="extract-tab" class="tab active">
+            <div class="upload-area" id="upload-area">
+                <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.tiff,.tif,.svg,.drawio,.dio,.xml,.bpmn,.zip,.rar,.7z">
+                <h3>Перетащите файл сюда или нажмите для выбора</h3>
+                <p>PNG, JPG, SVG, DrawIO, BPMN, ZIP, RAR, 7Z</p>
+            </div>
+            <div class="loading" id="extract-loading">
+                <div class="spinner"></div>
+                <p>Обработка... <span class="timer" id="extract-timer">0s</span></p>
+            </div>
+            <div class="results" id="extract-results"></div>
+        </div>
+
+        <div id="generate-tab" class="tab">
+            <div class="gen-form">
+                <div class="gen-top">
+                    <select id="gen-type">
+                        <option value="sequence">Sequence Diagram</option>
+                        <option value="activity">Activity Diagram</option>
+                    </select>
+                    <input type="text" id="gen-title" placeholder="Название диаграммы (опционально)">
+                </div>
+                <div class="labels">
+                    <span class="num">#</span>
+                    <span class="actor">Актор</span>
+                    <span class="action">Действие</span>
+                    <span class="target">Цель</span>
+                    <span class="note">Заметка</span>
+                    <span class="ph"></span>
+                </div>
+                <div id="steps-editor"></div>
+                <div class="gen-actions">
+                    <button class="btn btn-secondary" onclick="addStepRow()">+ Добавить шаг</button>
+                    <button class="btn btn-primary" onclick="generateDiagram()">Сгенерировать</button>
+                </div>
+            </div>
+            <div class="loading" id="gen-loading">
+                <div class="spinner"></div>
+                <p>Генерация...</p>
+            </div>
+            <div class="gen-result" id="gen-results"></div>
+        </div>
+    </div>
+
+    <div class="fullscreen-overlay" id="fullscreen" onclick="this.classList.remove('active')">
+        <img id="fullscreen-img" src="">
+    </div>
+
+    <script>
+        let timerInterval = null;
+        let timerStart = 0;
+
+        function switchTab(name) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+            document.getElementById(name + '-tab').classList.add('active');
+            document.querySelector(`nav button[onclick="switchTab('${name}')"]`).classList.add('active');
+        }
+
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+        uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+        uploadArea.addEventListener('drop', e => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', () => { if (fileInput.files.length) uploadFile(fileInput.files[0]); });
+
+        function startTimer(id) {
+            timerStart = Date.now();
+            const el = document.getElementById(id);
+            timerInterval = setInterval(() => {
+                el.textContent = Math.floor((Date.now() - timerStart) / 1000) + 's';
+            }, 200);
+        }
+
+        function stopTimer() {
+            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        }
+
+        async function uploadFile(file) {
+            const loading = document.getElementById('extract-loading');
+            const results = document.getElementById('extract-results');
+            results.innerHTML = '';
+            loading.classList.add('active');
+            uploadArea.style.display = 'none';
+            startTimer('extract-timer');
+
+            try {
+                const form = new FormData();
+                form.append('file', file);
+                const resp = await fetch('/api/extract/file', { method: 'POST', body: form });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+                    throw new Error(err.detail || resp.statusText);
+                }
+                const data = await resp.json();
+                renderResults(data);
+            } catch (e) {
+                results.innerHTML = `<div class="error-box">${e.message}</div>`;
+            } finally {
+                stopTimer();
+                loading.classList.remove('active');
+                uploadArea.style.display = '';
+            }
+        }
+
+        function renderResults(data) {
+            const container = document.getElementById('extract-results');
+            if (!data || !data.length) {
+                container.innerHTML = '<div class="error-box">Нет результатов</div>';
+                return;
+            }
+            container.innerHTML = data.map((r, idx) => {
+                const title = r.source_file.split(/[/\\]/).pop();
+                const typeBadge = r.diagram_type ? `<span class="badge">${r.diagram_type}</span>` : '';
+                const confColor = r.confidence >= 0.7 ? 'var(--ok)' : r.confidence >= 0.4 ? 'var(--actor)' : 'var(--err)';
+                const confPct = Math.round(r.confidence * 100);
+                const confHtml = r.confidence > 0
+                    ? `<span class="confidence">${confPct}%<span class="conf-bar"><span class="conf-fill" style="width:${confPct}%;background:${confColor}"></span></span></span>`
+                    : '';
+                const errorHtml = r.error ? `<div class="error-box">${r.error}</div>` : '';
+                const stepsHtml = (r.steps || []).map(s => {
+                    const actor = s.actor ? `<span class="step-actor">[${s.actor}]</span>` : '';
+                    const target = s.target && s.target !== s.actor ? `<span class="step-target">→ ${s.target}</span>` : '';
+                    const note = s.note && s.note !== s.action ? `<div class="step-note">${s.note}</div>` : '';
+                    return `<div class="step"><span class="step-num">${s.number || '•'}.</span>${actor}${s.action}${target}${note}</div>`;
+                }).join('');
+                const count = (r.steps || []).length;
+                const genBtn = count > 0
+                    ? `<button class="btn-generate-from" onclick="prefillFromExtraction(${idx})">Сгенерировать диаграмму из этих шагов</button>`
+                    : '';
+                return `<div class="result-card">
+                    <div class="result-header"><span class="result-title">${title}</span>${typeBadge}${confHtml}</div>
+                    ${errorHtml}${stepsHtml}
+                    ${count > 0 ? `<div class="step-count">Шагов: ${count}</div>` : ''}
+                    ${genBtn}
+                </div>`;
+            }).join('');
+            window._lastResults = data;
+        }
+
+        window._lastResults = [];
+
+        function prefillFromExtraction(idx) {
+            const r = window._lastResults[idx];
+            if (!r || !r.steps) return;
+            switchTab('generate');
+            if (r.diagram_type) document.getElementById('gen-type').value = r.diagram_type === 'activity' ? 'activity' : 'sequence';
+            document.getElementById('gen-title').value = '';
+            const editor = document.getElementById('steps-editor');
+            editor.innerHTML = '';
+            r.steps.forEach(s => addStepRow(s));
+        }
+
+        function addStepRow(data) {
+            const editor = document.getElementById('steps-editor');
+            const n = editor.children.length + 1;
+            const row = document.createElement('div');
+            row.className = 'gen-row';
+            row.innerHTML = `
+                <input class="num" type="text" value="${data ? data.number || n : n}" readonly>
+                <input class="actor" type="text" placeholder="Актор" value="${data ? data.actor || '' : ''}">
+                <input class="action" type="text" placeholder="Действие *" value="${data ? data.action || '' : ''}">
+                <input class="target" type="text" placeholder="Цель" value="${data ? data.target || '' : ''}">
+                <input class="note" type="text" placeholder="Заметка" value="${data ? data.note || '' : ''}">
+                <button class="remove-btn" onclick="this.parentElement.remove();renumber()">×</button>
+            `;
+            editor.appendChild(row);
+        }
+
+        function renumber() {
+            document.querySelectorAll('#steps-editor .gen-row').forEach((row, i) => {
+                row.querySelector('.num').value = i + 1;
+            });
+        }
+
+        function collectSteps() {
+            const steps = [];
+            document.querySelectorAll('#steps-editor .gen-row').forEach(row => {
+                const action = row.querySelector('.action').value.trim();
+                if (!action) return;
+                steps.push({
+                    number: parseInt(row.querySelector('.num').value) || steps.length + 1,
+                    actor: row.querySelector('.actor').value.trim() || null,
+                    action: action,
+                    target: row.querySelector('.target').value.trim() || null,
+                    note: row.querySelector('.note').value.trim() || null,
+                });
+            });
+            return steps;
+        }
+
+        async function generateDiagram() {
+            const steps = collectSteps();
+            if (!steps.length) return;
+
+            const loading = document.getElementById('gen-loading');
+            const results = document.getElementById('gen-results');
+            results.innerHTML = '';
+            loading.classList.add('active');
+
+            try {
+                const payload = {
+                    steps: steps,
+                    diagram_type: document.getElementById('gen-type').value,
+                    title: document.getElementById('gen-title').value.trim() || null,
+                };
+                const resp = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+                    throw new Error(err.detail || resp.statusText);
+                }
+                const data = await resp.json();
+                renderGenResult(data);
+            } catch (e) {
+                results.innerHTML = `<div class="error-box">${e.message}</div>`;
+            } finally {
+                loading.classList.remove('active');
+            }
+        }
+
+        function renderGenResult(data) {
+            const container = document.getElementById('gen-results');
+            let html = '';
+
+            if (data.error) {
+                html += `<div class="error-box">${data.error}</div>`;
+            }
+
+            if (data.plantuml_code) {
+                html += `<div class="code-block"><button class="copy-btn" onclick="copyCode()">Копировать</button><code id="puml-code">${data.plantuml_code.replace(/</g, '&lt;')}</code></div>`;
+            }
+
+            if (data.png_base64) {
+                const src = `data:image/png;base64,${data.png_base64}`;
+                html += `<div class="gen-image"><img src="${src}" alt="Diagram" onclick="viewFullscreen('${src}')"></div>`;
+                html += `<div class="img-actions">
+                    <button onclick="viewFullscreen('${src}')">Открыть</button>
+                    <button onclick="downloadImage('${src}', 'diagram.png')">Скачать PNG</button>
+                </div>`;
+            } else if (data.plantuml_code && !data.error) {
+                html += `<div style="color:var(--dim);font-size:13px;margin-top:10px;">PNG недоступен (требуется Java + PlantUML)</div>`;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function copyCode() {
+            const code = document.getElementById('puml-code');
+            if (code) navigator.clipboard.writeText(code.textContent);
+        }
+
+        function viewFullscreen(src) {
+            const overlay = document.getElementById('fullscreen');
+            document.getElementById('fullscreen-img').src = src;
+            overlay.classList.add('active');
+        }
+
+        function downloadImage(src, filename) {
+            const a = document.createElement('a');
+            a.href = src;
+            a.download = filename;
+            a.click();
+        }
+
+        for (let i = 0; i < 3; i++) addStepRow();
+    </script>
+</body>
+</html>

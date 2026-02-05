@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, Query
-from fastapi.responses import JSONResponse, PlainTextResponse, HTMLResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 from app.llm import warmup
@@ -32,6 +33,11 @@ app = FastAPI(
     description="Extract diagram steps from images and documents",
     version="0.1.0",
 )
+
+
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/static/index.html")
 
 
 @app.on_event("startup")
@@ -263,6 +269,11 @@ async def generate_diagram(request: GenerateRequest):
         )
 
 
+def _safe_alias(name: str) -> str:
+    import re
+    return re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9_]', '_', name.replace(" ", "_"))
+
+
 def generate_sequence_diagram(steps: list[DiagramStep], title: Optional[str] = None) -> str:
     lines = ["@startuml"]
 
@@ -277,18 +288,15 @@ def generate_sequence_diagram(steps: list[DiagramStep], title: Optional[str] = N
             participants.add(step.target)
 
     for p in sorted(participants):
-        safe_name = p.replace(" ", "_")
-        lines.append(f'participant "{p}" as {safe_name}')
+        lines.append(f'participant "{p}" as {_safe_alias(p)}')
 
     lines.append("")
 
     for step in steps:
         actor = step.actor or "User"
         target = step.target or "System"
-        actor_safe = actor.replace(" ", "_")
-        target_safe = target.replace(" ", "_")
 
-        lines.append(f"{actor_safe} -> {target_safe}: {step.action}")
+        lines.append(f"{_safe_alias(actor)} -> {_safe_alias(target)}: {step.action}")
 
         if step.note:
             lines.append(f"note right: {step.note}")
@@ -316,42 +324,69 @@ def generate_activity_diagram(steps: list[DiagramStep], title: Optional[str] = N
     return "\n".join(lines)
 
 
+def _plantuml_encode(text: str) -> str:
+    import zlib
+    compressed = zlib.compress(text.encode("utf-8"))[2:-4]
+    alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"
+    result = []
+    for i in range(0, len(compressed), 3):
+        chunk = compressed[i:i+3]
+        if len(chunk) == 3:
+            b0, b1, b2 = chunk
+            result.append(alphabet[b0 >> 2])
+            result.append(alphabet[((b0 & 0x3) << 4) | (b1 >> 4)])
+            result.append(alphabet[((b1 & 0xF) << 2) | (b2 >> 6)])
+            result.append(alphabet[b2 & 0x3F])
+        elif len(chunk) == 2:
+            b0, b1 = chunk
+            result.append(alphabet[b0 >> 2])
+            result.append(alphabet[((b0 & 0x3) << 4) | (b1 >> 4)])
+            result.append(alphabet[(b1 & 0xF) << 2])
+        elif len(chunk) == 1:
+            b0 = chunk[0]
+            result.append(alphabet[b0 >> 2])
+            result.append(alphabet[(b0 & 0x3) << 4])
+    return "".join(result)
+
+
 def render_plantuml(code: str) -> Optional[str]:
+    import subprocess
+    import shutil
+
     try:
-        import subprocess
-        import shutil
-
-        if not shutil.which("java"):
-            logger.warning("Java not found, cannot render PlantUML")
-            return None
-
-        plantuml_jar = Path("plantuml.jar")
-        if not plantuml_jar.exists():
-            logger.warning("plantuml.jar not found")
-            return None
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".puml", delete=False) as f:
-            f.write(code)
-            puml_path = f.name
-
-        subprocess.run(
-            ["java", "-jar", str(plantuml_jar), "-tpng", puml_path],
-            check=True,
-            capture_output=True,
-        )
-
-        png_path = Path(puml_path).with_suffix(".png")
-        if png_path.exists():
-            with open(png_path, "rb") as f:
-                png_data = f.read()
-            png_path.unlink()
-            Path(puml_path).unlink()
-            return base64.b64encode(png_data).decode()
-
+        if shutil.which("java"):
+            plantuml_jar = Path("plantuml.jar")
+            if plantuml_jar.exists():
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".puml", delete=False) as f:
+                    f.write(code)
+                    puml_path = f.name
+                subprocess.run(
+                    ["java", "-jar", str(plantuml_jar), "-tpng", puml_path],
+                    check=True, capture_output=True,
+                )
+                png_path = Path(puml_path).with_suffix(".png")
+                if png_path.exists():
+                    with open(png_path, "rb") as f:
+                        png_data = f.read()
+                    png_path.unlink()
+                    Path(puml_path).unlink()
+                    return base64.b64encode(png_data).decode()
     except Exception as e:
-        logger.error(f"PlantUML rendering failed: {e}")
+        logger.warning(f"Local PlantUML failed: {e}")
+
+    try:
+        import httpx
+        encoded = _plantuml_encode(code)
+        resp = httpx.get(f"https://www.plantuml.com/plantuml/png/{encoded}", timeout=15)
+        if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("image"):
+            return base64.b64encode(resp.content).decode()
+    except Exception as e:
+        logger.error(f"PlantUML server failed: {e}")
 
     return None
+
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 if __name__ == "__main__":
