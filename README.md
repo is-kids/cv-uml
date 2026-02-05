@@ -12,7 +12,17 @@
 
 ### Вход
 
-Изображение диаграммы в формате `PNG` / `JPG`. Возможные типы:
+Поддерживаемые форматы файлов:
+
+| Категория | Форматы |
+|-----------|---------|
+| **Изображения** | PNG, JPG, JPEG, GIF, BMP, WebP, TIFF |
+| **XML-диаграммы** | Draw.io (.drawio, .dio), BPMN (.bpmn) |
+| **Архивы** | ZIP, RAR, 7Z (автоматическая распаковка) |
+
+> **Примечание:** PDF, PPTX, DOCX и SVG форматы не поддерживаются. Конвертируйте их в PNG/JPG перед обработкой.
+
+Возможные типы диаграмм:
 
 - **BPMN** — бизнес-процессы (основной случай в датасете)
 - **UML** — class, sequence, use-case диаграммы
@@ -269,13 +279,158 @@ docker compose up
 
 ## 6. Метрики оценки качества
 
-| Метрика | Описание | Цель |
-|---------|----------|------|
-| **Step Accuracy** | Доля шагов алгоритма, правильно извлечённых из диаграммы | ≥ 70% |
-| **Role Detection Rate** | Доля шагов с правильно определённой ролью | ≥ 60% |
-| **Latency (P95)** | Время обработки одного изображения (95-й перцентиль) | ≤ 20 сек |
-| **Format Compliance** | Доля ответов в валидном JSON-формате | 100% |
-| **Diagram Type Generalization** | Работает ли сервис на типах диаграмм, которых не было в примерах | — |
+### Почему не простой text matching?
+
+Простое сравнение текста (Precision/Recall/F1 по точному совпадению) не работает для данной задачи:
+
+| Проблема | Пример |
+|----------|--------|
+| Синонимы | "создать запрос" vs "сформировать заявку" — одно и то же, но 0% совпадения |
+| Перевод | Ground truth на русском, модель отвечает на английском |
+| Порядок важен | Алгоритм — это последовательность, перепутанный порядок = ошибка |
+| Роли не учитываются | Важно КТО выполняет действие, а не только само действие |
+
+### Используемые метрики
+
+#### 1. Semantic F1 (вес: 40%)
+
+**Что измеряет:** Совпадение шагов по смыслу, а не по тексту.
+
+**Как работает:**
+- Используем sentence embeddings модель `paraphrase-multilingual-MiniLM-L12-v2`
+- Модель преобразует текст в вектор, захватывающий семантику
+- Сравниваем косинусное сходство между векторами
+- Порог совпадения: 0.5 (50% семантического сходства)
+
+**Пример:**
+```
+GT:        "Создание запроса"
+Extracted: "Create a request"
+Text similarity: ~5%  (разные языки)
+Semantic similarity: ~85%  (одинаковый смысл)
+```
+
+**Формула:**
+```
+Precision = matched_extracted / total_extracted
+Recall = matched_gt / total_gt
+F1 = 2 × Precision × Recall / (Precision + Recall)
+```
+
+#### 2. Sequence Score (вес: 30%)
+
+**Что измеряет:** Правильность порядка извлечённых шагов.
+
+**Компоненты:**
+
+**a) LCS Ratio (Longest Common Subsequence)**
+- Находит самую длинную общую подпоследовательность
+- `LCS_ratio = len(LCS) / max(len_gt, len_ex)`
+
+**b) Edit Distance Ratio**
+- Количество операций (вставка/удаление/замена) для преобразования одной последовательности в другую
+- `Edit_ratio = 1 - (edit_distance / max_length)`
+
+**Итоговый Sequence Score:**
+```
+Sequence = (LCS_ratio + Edit_ratio) / 2
+```
+
+**Пример:**
+```
+GT order:        [1, 2, 3, 4, 5]
+Extracted order: [1, 3, 2, 4, 5]  (шаги 2 и 3 перепутаны)
+LCS = [1, 3, 4, 5] → ratio = 4/5 = 0.80
+Edit distance = 2 → ratio = 1 - 2/5 = 0.60
+Sequence Score = (0.80 + 0.60) / 2 = 0.70
+```
+
+#### 3. Role Accuracy (вес: 20%)
+
+**Что измеряет:** Для совпавших шагов — правильно ли определена роль/актор.
+
+**Формула:**
+```
+Role_Accuracy = correct_roles / total_roles_in_matched_steps
+```
+
+**Пример:**
+```
+GT:        "Клиент оформляет заказ"     (role: Клиент)
+Extracted: "Customer places an order"   (actor: Customer)
+→ Role не совпадает (разные языки), Role_Accuracy = 0
+
+GT:        "Клиент оформляет заказ"     (role: Клиент)
+Extracted: "Клиент создаёт заказ"       (actor: Клиент)
+→ Role совпадает, Role_Accuracy = 1
+```
+
+#### 4. Step Count Accuracy (вес: 10%)
+
+**Что измеряет:** Насколько точно определено количество шагов.
+
+**Формула:**
+```
+Count_Accuracy = max(0, 1 - |extracted_count - gt_count| / gt_count)
+```
+
+**Пример:**
+```
+GT: 10 шагов, Extracted: 8 шагов
+Count_Accuracy = 1 - |8-10|/10 = 1 - 0.2 = 0.80
+```
+
+### Composite Score
+
+Итоговая оценка качества извлечения:
+
+```
+Score = 0.4 × Semantic_F1 + 0.3 × Sequence + 0.2 × Role_Accuracy + 0.1 × Count_Accuracy
+```
+
+**Интерпретация:**
+| Score | Качество |
+|-------|----------|
+| ≥ 0.70 | Хорошо (зелёный) |
+| 0.40 - 0.69 | Удовлетворительно (жёлтый) |
+| < 0.40 | Плохо (красный) |
+
+### Целевые показатели
+
+| Метрика | Цель |
+|---------|------|
+| **Composite Score** | ≥ 0.70 |
+| **Semantic F1** | ≥ 0.70 |
+| **Sequence Score** | ≥ 0.80 |
+| **Role Accuracy** | ≥ 0.60 |
+| **Latency (P95)** | ≤ 20 сек |
+| **Format Compliance** | 100% валидный JSON |
+
+### Запуск evaluation
+
+```bash
+# Установка зависимостей
+pip install rich pandas sentence-transformers
+
+# Полный прогон: extraction + evaluation
+python evaluate.py --run
+
+# Evaluation по готовым результатам
+python evaluate.py eval_results.json
+
+# С кастомным ground truth
+python evaluate.py eval_results.json custom_gt.txt
+```
+
+### Вывод
+
+Результаты сохраняются в папку `eval_output/`:
+```
+eval_output/
+├── eval_YYYYMMDD_HHMMSS.csv              # Для pandas/Excel
+├── eval_YYYYMMDD_HHMMSS_detailed.json    # Детальный JSON
+└── eval_YYYYMMDD_HHMMSS.html             # Интерактивный HTML-отчёт
+```
 
 ---
 
@@ -307,3 +462,170 @@ docker compose up
 | test.txt | 11 PNG-диаграмм с ground truth | Пошаговые описания алгоритмов из изображений |
 
 `test.txt` — основной файл для валидации: содержит имена PNG-файлов и соответствующие им пошаговые описания алгоритмов, что позволяет автоматически оценивать качество извлечения.
+
+---
+
+## 9. Docker
+
+### Структура
+
+```
+docker/
+├── Dockerfile          # GPU версия (CUDA)
+├── docker-compose.yml  # GPU с NVIDIA runtime
+```
+
+### Быстрый старт (GPU)
+
+**Требования:**
+- Docker + Docker Compose
+- NVIDIA GPU с 8+ GB VRAM
+- NVIDIA Container Toolkit (`nvidia-docker2`)
+
+```bash
+# Сборка и запуск
+cd docker
+docker compose up -d
+
+# Проверка статуса
+docker compose logs -f
+
+# Дождись "Model ready" в логах
+```
+
+### Тестирование
+
+**1. Health check:**
+```bash
+curl http://localhost:8000/api/health
+# {"status":"ok","model":"Qwen2-VL-2B-Instruct"}
+```
+
+**2. Извлечение из изображения:**
+```bash
+# JSON формат
+curl -X POST "http://localhost:8000/api/extract" \
+  -F "file=@path/to/diagram.png"
+
+# Текстовый формат (читаемый)
+curl -X POST "http://localhost:8000/api/extract?format=text" \
+  -F "file=@path/to/diagram.png"
+
+# HTML формат
+curl -X POST "http://localhost:8000/api/extract?format=html" \
+  -F "file=@path/to/diagram.png" > result.html
+```
+
+**3. Swagger UI:**
+Открой http://localhost:8000/docs в браузере.
+
+### Переменные окружения
+
+| Переменная | Описание | По умолчанию |
+|------------|----------|--------------|
+| `QWEN_MODEL` | Модель для инференса | `Qwen/Qwen2-VL-2B-Instruct` |
+| `CUDA_VISIBLE_DEVICES` | GPU для использования | `0` |
+| `USE_4BIT` | 4-bit квантизация (быстрее) | `1` |
+| `USE_OCR` | Tesseract OCR для текста | `1` |
+
+**Доступные модели:**
+- `Qwen/Qwen2-VL-2B-Instruct` — 2B параметров, ~4GB VRAM (рекомендуется для 8GB GPU)
+- `Qwen/Qwen2-VL-7B-Instruct` — 7B параметров, ~15GB VRAM, точнее
+
+**Оптимизации:**
+- 4-bit квантизация через bitsandbytes (USE_4BIT=1)
+- Уменьшение размера изображения до 768px
+- Ограничение max_tokens=512 для ускорения
+- ~5-7 секунд на изображение с GPU
+
+### Volumes
+
+| Volume | Назначение |
+|--------|------------|
+| `model-cache` | Кэш HuggingFace моделей (персистентный) |
+| `./data` | Входные данные |
+| `./eval_output` | Результаты evaluation |
+
+### Остановка
+
+```bash
+docker compose down
+
+# С удалением кэша моделей
+docker compose down -v
+```
+
+### Troubleshooting
+
+**GPU не обнаружен:**
+```bash
+# Проверь NVIDIA runtime
+docker run --rm --gpus all nvidia/cuda:12.1-base nvidia-smi
+```
+
+**Segmentation fault при загрузке 7B:**
+- Недостаточно VRAM. Используй 2B модель:
+```bash
+QWEN_MODEL=Qwen/Qwen2-VL-2B-Instruct docker compose up -d
+```
+
+**Долгий первый запуск:**
+- Модель скачивается с HuggingFace (~4GB для 2B). Последующие запуски быстрые благодаря volume cache.
+
+---
+
+## 10. Локальный запуск (без Docker)
+
+### Установка
+
+```bash
+# Клонируй репозиторий
+git clone <repo-url>
+cd cv-uml
+
+# Создай виртуальное окружение
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# или
+.venv\Scripts\activate     # Windows
+
+# Установи зависимости
+pip install -r requirements.txt
+```
+
+### Дополнительно (опционально)
+
+**Tesseract OCR (улучшает точность):**
+- Ubuntu: `apt install tesseract-ocr tesseract-ocr-rus`
+- Windows: https://github.com/UB-Mannheim/tesseract/wiki
+- Mac: `brew install tesseract tesseract-lang`
+
+**PlantUML (для генерации диаграмм):**
+```bash
+wget https://github.com/plantuml/plantuml/releases/download/v1.2024.0/plantuml-1.2024.0.jar
+```
+
+### Запуск
+
+```bash
+# Установи модель (2B для 8GB VRAM)
+export QWEN_MODEL=Qwen/Qwen2-VL-2B-Instruct
+
+# Запусти сервер
+python main.py
+# или
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+### CLI инструменты
+
+```bash
+# Извлечение из одного изображения
+python extract.py path/to/diagram.png
+
+# Полная evaluation на тестовом датасете
+python evaluate.py --run
+
+# Evaluation по готовым результатам
+python evaluate.py eval_results.json
+```
