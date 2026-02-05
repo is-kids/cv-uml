@@ -8,6 +8,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
+from app.config import TEST_DIR
 from app.llm import warmup
 from app.pipeline import process_image
 from app.preprocessing import preprocess_image
@@ -91,7 +92,7 @@ def main():
         console.print("[bold]Использование:[/bold]")
         console.print("  python extract.py <image.png>")
         console.print("\n[bold]Пример:[/bold]")
-        console.print('  python extract.py "docs/Диаграммы. 2 часть/Диаграммы. 2 часть/test/149.png"')
+        console.print(f'  python extract.py "{TEST_DIR / "149.png"}"')
         return
 
     extract_and_show(sys.argv[1])

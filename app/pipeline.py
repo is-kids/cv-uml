@@ -9,6 +9,7 @@ from app.converters import (
     extract_archive,
     parse_bpmn,
     parse_drawio,
+    render_svg,
 )
 from app.llm import image_inference, text_inference
 from app.models import ExtractionResult, FileInput, FileType
@@ -110,6 +111,12 @@ def process_file(file_input: FileInput) -> list[ExtractionResult]:
             if image:
                 return [process_image(image, source)]
             return [ExtractionResult(source_file=source, error="Failed to load image")]
+
+        elif file_type == FileType.SVG:
+            image = render_svg(path)
+            if image:
+                return [process_image(image, source)]
+            return [ExtractionResult(source_file=source, error="Failed to render SVG")]
 
         elif file_type == FileType.DRAWIO:
             text = parse_drawio(path)

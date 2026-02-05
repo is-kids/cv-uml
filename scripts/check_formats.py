@@ -7,15 +7,11 @@ logging.basicConfig(level=logging.INFO)
 from rich.console import Console
 from rich.table import Table
 
+from app.config import SAMPLE_FILES
+
 console = Console()
 
-# Test files for supported formats (use forward slashes for cross-platform)
-TEST_FILES = {
-    "PNG": "docs/Диаграммы. 2 часть/Диаграммы. 2 часть/Picture/1.png",
-    "JPG": "docs/Диаграммы/Диаграммы/Телеграм_Диаграммы 2/uml/class.jpg",
-    "DrawIO": "docs/Диаграммы/Диаграммы/Notion_Диаграммы/BPMN/bpmn.drawio",
-    "BPMN": "docs/Диаграммы/Диаграммы/БиблиотечныйСервис_Диаграммы/BPMN/Process_Booking.bpmn",
-}
+TEST_FILES = {k: str(v) for k, v in SAMPLE_FILES.items()}
 
 
 def test_format(format_name: str, file_path: str) -> dict:

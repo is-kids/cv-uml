@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class FileType(str, Enum):
     IMAGE = "image"
+    SVG = "svg"
     DRAWIO = "drawio"
     BPMN = "bpmn"
     ARCHIVE = "archive"

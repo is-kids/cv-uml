@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
+from app.config import EVAL_OUTPUT_DIR
 from app.metrics import MetricsResult
 
 
@@ -46,7 +47,7 @@ class EvalReport:
 class Reporter:
     """Handles evaluation output in multiple formats."""
 
-    def __init__(self, output_dir: str = "eval_output"):
+    def __init__(self, output_dir: str = str(EVAL_OUTPUT_DIR)):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         self.console = Console()

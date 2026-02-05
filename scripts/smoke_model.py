@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 from PIL import Image
+from app.config import DOCS_DIR
 from app.llm import image_inference, warmup
 from app.preprocessing import preprocess_image
 from app.prompts import IMAGE_PROMPT
@@ -18,10 +19,10 @@ def main():
         sys.exit(1)
     print("Model loaded!")
 
-    test_images = list(Path("docs").rglob("*.png"))[:3]
+    test_images = list(DOCS_DIR.rglob("*.png"))[:3]
 
     if not test_images:
-        print("No test images found in docs/")
+        print(f"No test images found in {DOCS_DIR}")
         print("Using placeholder test...")
         return
 
