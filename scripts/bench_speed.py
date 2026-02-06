@@ -18,7 +18,9 @@ print(f"Model loaded in {load_time:.1f}s")
 # Test single image
 from app.pipeline import process_path
 
-test_image = Path(r"docs\Диаграммы. 2 часть\Диаграммы. 2 часть\Picture\1.png")
+from app.config import SAMPLE_FILES
+
+test_image = SAMPLE_FILES["PNG"]
 if test_image.exists():
     print(f"\nProcessing {test_image.name}...")
     start = time.time()

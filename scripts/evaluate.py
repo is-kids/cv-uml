@@ -8,14 +8,12 @@ from pathlib import Path
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from app.config import TEST_DIR, GT_FILE, EVAL_OUTPUT_DIR
 from app.metrics import calculate_metrics, warmup_metrics
 from app.reporter import Reporter, FileMetrics, EvalReport
 
 
 console = Console()
-
-TEST_DIR = "docs/Диаграммы. 2 часть/Диаграммы. 2 часть/test"
-GT_FILE = "docs/Диаграммы. 2 часть/Диаграммы. 2 часть/test/test.txt"
 
 
 def parse_ground_truth(test_file: str) -> dict:
@@ -81,7 +79,7 @@ def find_result(results: list, filename: str):
     return None
 
 
-def evaluate(results: list, ground_truth: dict, output_dir: str = "eval_output") -> EvalReport:
+def evaluate(results: list, ground_truth: dict, output_dir: str = str(EVAL_OUTPUT_DIR)) -> EvalReport:
     """Run evaluation and generate report."""
     reporter = Reporter(output_dir)
     file_metrics = []
@@ -135,7 +133,7 @@ def evaluate(results: list, ground_truth: dict, output_dir: str = "eval_output")
     return report
 
 
-def run_full_evaluation(test_dir: str = TEST_DIR, gt_file: str = GT_FILE):
+def run_full_evaluation(test_dir: str = str(TEST_DIR), gt_file: str = str(GT_FILE)):
     """Run extraction + evaluation."""
     from app.llm import warmup
     from app.pipeline import process_path
@@ -151,7 +149,7 @@ def run_full_evaluation(test_dir: str = TEST_DIR, gt_file: str = GT_FILE):
     return evaluate(results_data, gt)
 
 
-def evaluate_from_file(results_file: str, gt_file: str = GT_FILE):
+def evaluate_from_file(results_file: str, gt_file: str = str(GT_FILE)):
     """Evaluate from existing results file."""
     with open(results_file, encoding='utf-8') as f:
         data = json.load(f)
@@ -167,7 +165,7 @@ if __name__ == "__main__":
         if sys.argv[1] == '--run':
             run_full_evaluation()
         else:
-            gt = sys.argv[2] if len(sys.argv) >= 3 else GT_FILE
+            gt = sys.argv[2] if len(sys.argv) >= 3 else str(GT_FILE)
             evaluate_from_file(sys.argv[1], gt)
     else:
         console.print("[bold]Usage:[/bold]")
