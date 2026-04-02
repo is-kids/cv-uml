@@ -88,7 +88,7 @@ To test the API:
 
 def main():
     print("=" * 60)
-    print("CV-UML Demo")
+    print("Diagram2Algo Demo")
     print("=" * 60)
 
     print("\nLoading model (may take a while on first run)...")

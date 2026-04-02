@@ -1,38 +1,59 @@
-import base64
-import io
 import logging
-import tempfile
-from pathlib import Path
-from typing import Optional
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, Query
-from fastapi.responses import JSONResponse, PlainTextResponse, HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
 
+from app.config import settings
+from app.exceptions import CVUMLException, LLMProviderError, UnsupportedFileError
 from app.llm import warmup
-from app.models import (
-    BatchResult,
-    DiagramStep,
-    ExtractionResult,
-    GenerateRequest,
-    GenerateResponse,
-)
-from app.pipeline import process_path
-from app.preprocessing import preprocess_image
-from app.prompts import IMAGE_PROMPT, IMAGE_PROMPT_NO_OCR
-from app.postprocessing import parse_llm_response
-from app.llm import image_inference
-from app.ocr import extract_text, is_tesseract_available
+from app.logging_config import RequestLoggingMiddleware, setup_logging
+from app.routes import extract_router, generate_router, health_router, metrics_router
 
-logging.basicConfig(level=logging.INFO)
+setup_logging(json_format=settings.log_json, level=settings.log_level)
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Warming up LLM...")
+    if warmup():
+        logger.info("LLM ready")
+    else:
+        logger.warning("LLM warmup failed - will initialize on first request")
+    yield
+
+
 app = FastAPI(
-    title="CV-UML",
-    description="Extract diagram steps from images and documents",
-    version="0.1.0",
+    title="Diagram2Algo",
+    description="Extract algorithms from diagram images and documents",
+    version="0.2.0",
+    lifespan=lifespan,
 )
+
+app.add_middleware(RequestLoggingMiddleware)
+
+app.include_router(health_router)
+app.include_router(extract_router)
+app.include_router(generate_router)
+app.include_router(metrics_router)
+
+
+
+@app.exception_handler(UnsupportedFileError)
+async def unsupported_file_handler(request: Request, exc: UnsupportedFileError):
+    return JSONResponse(status_code=400, content={"error": exc.message, "detail": exc.detail})
+
+
+@app.exception_handler(LLMProviderError)
+async def llm_provider_handler(request: Request, exc: LLMProviderError):
+    return JSONResponse(status_code=503, content={"error": exc.message, "detail": exc.detail})
+
+
+@app.exception_handler(CVUMLException)
+async def cvuml_handler(request: Request, exc: CVUMLException):
+    return JSONResponse(status_code=500, content={"error": exc.message, "detail": exc.detail})
 
 
 @app.get("/")
@@ -40,354 +61,7 @@ async def root():
     return RedirectResponse(url="/static/index.html")
 
 
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Warming up LLM model...")
-    if warmup():
-        logger.info("Model ready")
-    else:
-        logger.warning("Model warmup failed - will load on first request")
-
-
-@app.get("/api/health")
-async def health_check():
-    from app.llm import MODEL_ID
-    return {"status": "ok", "model": MODEL_ID}
-
-
-def format_result_text(result: ExtractionResult) -> str:
-    """Format result as readable plain text."""
-    lines = []
-    lines.append(f"{'='*50}")
-    lines.append(f"Файл: {result.source_file}")
-    if result.diagram_type:
-        lines.append(f"Тип: {result.diagram_type}")
-    lines.append(f"{'='*50}")
-    lines.append("")
-
-    if result.error:
-        lines.append(f"ОШИБКА: {result.error}")
-        return "\n".join(lines)
-
-    if not result.steps:
-        lines.append("Шаги не найдены")
-        return "\n".join(lines)
-
-    lines.append("АЛГОРИТМ:")
-    lines.append("")
-
-    for step in result.steps:
-        num = step.number or "•"
-        line = f"  {num}. "
-        if step.actor:
-            line += f"[{step.actor}] "
-        line += step.action or "—"
-        if step.target and step.target != step.actor:
-            line += f" → {step.target}"
-        lines.append(line)
-
-    lines.append("")
-    lines.append(f"Всего шагов: {len(result.steps)}")
-    if result.confidence:
-        lines.append(f"Уверенность: {result.confidence:.0%}")
-
-    return "\n".join(lines)
-
-
-def format_result_html(result: ExtractionResult) -> str:
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>{result.source_file} - CV-UML</title>
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-               max-width: 800px; margin: 40px auto; padding: 20px; background: #1a1a2e; color: #eee; }}
-        h1 {{ color: #00d4ff; margin-bottom: 5px; }}
-        .type {{ color: #888; margin-bottom: 20px; }}
-        .steps {{ background: #16213e; padding: 20px; border-radius: 8px; }}
-        .step {{ padding: 10px 15px; margin: 8px 0; background: #0f3460; border-radius: 6px;
-                 border-left: 3px solid #00d4ff; }}
-        .step-num {{ color: #00d4ff; font-weight: bold; margin-right: 10px; }}
-        .actor {{ color: #ffaa00; margin-right: 8px; }}
-        .action {{ color: #fff; }}
-        .target {{ color: #888; margin-left: 8px; }}
-        .note {{ color: #666; font-style: italic; margin-top: 5px; font-size: 0.9em; }}
-        .summary {{ margin-top: 20px; color: #888; }}
-        .error {{ background: #4a1a1a; border-left-color: #ff4444; }}
-    </style>
-</head>
-<body>
-    <h1>{result.source_file}</h1>
-    <div class="type">{result.diagram_type or 'Тип не определён'}</div>
-"""
-
-    if result.error:
-        html += f'<div class="step error">Ошибка: {result.error}</div>'
-    elif not result.steps:
-        html += '<div class="step">Шаги не найдены</div>'
-    else:
-        html += '<div class="steps">'
-        for step in result.steps:
-            html += '<div class="step">'
-            html += f'<span class="step-num">{step.number or "•"}.</span>'
-            if step.actor:
-                html += f'<span class="actor">[{step.actor}]</span>'
-            html += f'<span class="action">{step.action or "—"}</span>'
-            if step.target and step.target != step.actor:
-                html += f'<span class="target">→ {step.target}</span>'
-            if step.note and step.note != step.action:
-                html += f'<div class="note">{step.note}</div>'
-            html += '</div>'
-        html += '</div>'
-
-        conf_pct = f"{result.confidence:.0%}" if result.confidence else "—"
-        html += f'<div class="summary">Шагов: {len(result.steps)} | Уверенность: {conf_pct}</div>'
-
-    html += "</body></html>"
-    return html
-
-
-@app.post("/api/extract")
-async def extract_from_image(
-    file: UploadFile = File(...),
-    format: str = Query("json", description="Output format: json, text, html")
-):
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
-
-    try:
-        contents = await file.read()
-        image = Image.open(io.BytesIO(contents))
-        processed = preprocess_image(image)
-
-        # Run OCR if available
-        ocr_text = ""
-        if is_tesseract_available():
-            logger.info("Running OCR...")
-            ocr_text = extract_text(image) or ""
-            if ocr_text:
-                logger.info(f"OCR extracted {len(ocr_text)} chars")
-
-        # Build prompt with or without OCR
-        if ocr_text:
-            prompt = IMAGE_PROMPT.format(ocr_text=ocr_text)
-        else:
-            prompt = IMAGE_PROMPT_NO_OCR
-
-        response = image_inference(processed, prompt)
-        result = parse_llm_response(response, file.filename or "uploaded_image")
-
-        if format == "text":
-            return PlainTextResponse(format_result_text(result))
-        elif format == "html":
-            return HTMLResponse(format_result_html(result))
-        else:
-            return result
-
-    except Exception as e:
-        logger.exception("Extraction failed")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/extract/file", response_model=list[ExtractionResult])
-async def extract_from_file(file: UploadFile = File(...)):
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
-            contents = await file.read()
-            tmp.write(contents)
-            tmp_path = tmp.name
-
-        results = process_path(tmp_path)
-
-        Path(tmp_path).unlink(missing_ok=True)
-
-        return results
-
-    except Exception as e:
-        logger.exception("Extraction failed")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/extract/batch", response_model=BatchResult)
-async def extract_batch(files: list[UploadFile] = File(...)):
-    all_results = []
-    failed = 0
-
-    for file in files:
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
-                contents = await file.read()
-                tmp.write(contents)
-                tmp_path = tmp.name
-
-            results = process_path(tmp_path)
-            all_results.extend(results)
-
-            Path(tmp_path).unlink(missing_ok=True)
-
-        except Exception as e:
-            logger.error(f"Failed to process {file.filename}: {e}")
-            failed += 1
-            all_results.append(ExtractionResult(
-                source_file=file.filename or "unknown",
-                error=str(e),
-            ))
-
-    successful = len([r for r in all_results if not r.error])
-
-    return BatchResult(
-        total_files=len(files),
-        successful=successful,
-        failed=failed,
-        results=all_results,
-    )
-
-
-@app.post("/api/generate", response_model=GenerateResponse)
-async def generate_diagram(request: GenerateRequest):
-    try:
-        if request.diagram_type == "sequence":
-            plantuml = generate_sequence_diagram(request.steps, request.title)
-        elif request.diagram_type == "activity":
-            plantuml = generate_activity_diagram(request.steps, request.title)
-        else:
-            plantuml = generate_sequence_diagram(request.steps, request.title)
-
-        png_base64 = render_plantuml(plantuml)
-
-        return GenerateResponse(
-            plantuml_code=plantuml,
-            png_base64=png_base64,
-        )
-
-    except Exception as e:
-        logger.exception("Generation failed")
-        return GenerateResponse(
-            plantuml_code="",
-            error=str(e),
-        )
-
-
-def _safe_alias(name: str) -> str:
-    import re
-    return re.sub(r'[^a-zA-Zа-яА-ЯёЁ0-9_]', '_', name.replace(" ", "_"))
-
-
-def generate_sequence_diagram(steps: list[DiagramStep], title: Optional[str] = None) -> str:
-    lines = ["@startuml"]
-
-    if title:
-        lines.append(f"title {title}")
-
-    participants = set()
-    for step in steps:
-        if step.actor:
-            participants.add(step.actor)
-        if step.target:
-            participants.add(step.target)
-
-    for p in sorted(participants):
-        lines.append(f'participant "{p}" as {_safe_alias(p)}')
-
-    lines.append("")
-
-    for step in steps:
-        actor = step.actor or "User"
-        target = step.target or "System"
-
-        lines.append(f"{_safe_alias(actor)} -> {_safe_alias(target)}: {step.action}")
-
-        if step.note:
-            lines.append(f"note right: {step.note}")
-
-    lines.append("@enduml")
-    return "\n".join(lines)
-
-
-def generate_activity_diagram(steps: list[DiagramStep], title: Optional[str] = None) -> str:
-    lines = ["@startuml"]
-
-    if title:
-        lines.append(f"title {title}")
-
-    lines.append("start")
-
-    for step in steps:
-        action = step.action
-        if step.actor:
-            action = f"{step.actor}: {action}"
-        lines.append(f":{action};")
-
-    lines.append("stop")
-    lines.append("@enduml")
-    return "\n".join(lines)
-
-
-def _plantuml_encode(text: str) -> str:
-    import zlib
-    compressed = zlib.compress(text.encode("utf-8"))[2:-4]
-    alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_"
-    result = []
-    for i in range(0, len(compressed), 3):
-        chunk = compressed[i:i+3]
-        if len(chunk) == 3:
-            b0, b1, b2 = chunk
-            result.append(alphabet[b0 >> 2])
-            result.append(alphabet[((b0 & 0x3) << 4) | (b1 >> 4)])
-            result.append(alphabet[((b1 & 0xF) << 2) | (b2 >> 6)])
-            result.append(alphabet[b2 & 0x3F])
-        elif len(chunk) == 2:
-            b0, b1 = chunk
-            result.append(alphabet[b0 >> 2])
-            result.append(alphabet[((b0 & 0x3) << 4) | (b1 >> 4)])
-            result.append(alphabet[(b1 & 0xF) << 2])
-        elif len(chunk) == 1:
-            b0 = chunk[0]
-            result.append(alphabet[b0 >> 2])
-            result.append(alphabet[(b0 & 0x3) << 4])
-    return "".join(result)
-
-
-def render_plantuml(code: str) -> Optional[str]:
-    import subprocess
-    import shutil
-
-    try:
-        if shutil.which("java"):
-            plantuml_jar = Path("plantuml.jar")
-            if plantuml_jar.exists():
-                with tempfile.NamedTemporaryFile(mode="w", suffix=".puml", delete=False) as f:
-                    f.write(code)
-                    puml_path = f.name
-                subprocess.run(
-                    ["java", "-jar", str(plantuml_jar), "-tpng", puml_path],
-                    check=True, capture_output=True,
-                )
-                png_path = Path(puml_path).with_suffix(".png")
-                if png_path.exists():
-                    with open(png_path, "rb") as f:
-                        png_data = f.read()
-                    png_path.unlink()
-                    Path(puml_path).unlink()
-                    return base64.b64encode(png_data).decode()
-    except Exception as e:
-        logger.warning(f"Local PlantUML failed: {e}")
-
-    try:
-        import httpx
-        encoded = _plantuml_encode(code)
-        resp = httpx.get(f"https://www.plantuml.com/plantuml/png/{encoded}", timeout=15)
-        if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("image"):
-            return base64.b64encode(resp.content).decode()
-    except Exception as e:
-        logger.error(f"PlantUML server failed: {e}")
-
-    return None
-
-
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
 
 if __name__ == "__main__":
     import uvicorn

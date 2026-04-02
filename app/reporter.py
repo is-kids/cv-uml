@@ -1,5 +1,3 @@
-"""Evaluation results reporter with multiple output formats."""
-
 import csv
 import json
 from datetime import datetime
@@ -18,7 +16,6 @@ from app.metrics import MetricsResult
 
 @dataclass
 class FileMetrics:
-    """Metrics for a single file."""
     filename: str
     gt_count: int
     extracted_count: int
@@ -29,13 +26,11 @@ class FileMetrics:
 
 @dataclass
 class EvalReport:
-    """Full evaluation report."""
     timestamp: str
     total_files: int
     evaluated_files: int
     total_gt_steps: int
     total_extracted: int
-    # Average metrics
     avg_semantic_f1: float
     avg_sequence_score: float
     avg_role_accuracy: float
@@ -45,7 +40,6 @@ class EvalReport:
 
 
 class Reporter:
-    """Handles evaluation output in multiple formats."""
 
     def __init__(self, output_dir: str = str(EVAL_OUTPUT_DIR)):
         self.output_dir = Path(output_dir)
@@ -54,7 +48,6 @@ class Reporter:
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     def generate_report(self, file_metrics: list[FileMetrics]) -> EvalReport:
-        """Generate summary report from file metrics."""
         evaluated = [m for m in file_metrics if m.extracted_count > 0 or m.gt_count > 0]
 
         total_gt = sum(m.gt_count for m in file_metrics)
@@ -87,16 +80,13 @@ class Reporter:
         )
 
     def print_console(self, report: EvalReport):
-        """Rich console output."""
-        # Header
         self.console.print()
         self.console.print(Panel.fit(
-            f"[bold cyan]CV-UML Evaluation Report[/bold cyan]\n"
+            f"[bold cyan]Diagram2Algo Evaluation Report[/bold cyan]\n"
             f"[dim]{report.timestamp}[/dim]",
             border_style="cyan"
         ))
 
-        # Main metrics table
         table = Table(
             title="Per-File Results",
             box=box.ROUNDED,
@@ -129,7 +119,6 @@ class Reporter:
 
         self.console.print(table)
 
-        # Summary panel
         score_style = "green" if report.avg_composite >= 0.7 else "yellow" if report.avg_composite >= 0.4 else "red"
 
         summary_text = (
@@ -149,11 +138,9 @@ class Reporter:
             border_style=score_style
         ))
 
-        # Legend
-        self.console.print("\n[dim]Score = 0.4×Semantic_F1 + 0.3×Sequence + 0.2×Role + 0.1×Count[/dim]")
+        self.console.print("\n[dim]Score = 0.4*Semantic_F1 + 0.3*Sequence + 0.2*Role + 0.1*Count[/dim]")
 
     def save_csv(self, report: EvalReport) -> Path:
-        """Save to CSV for pandas/Excel analysis."""
         csv_path = self.output_dir / f"eval_{self.timestamp}.csv"
 
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:
@@ -184,7 +171,6 @@ class Reporter:
         return csv_path
 
     def save_detailed_json(self, report: EvalReport) -> Path:
-        """Save detailed JSON with all steps and metrics."""
         json_path = self.output_dir / f"eval_{self.timestamp}_detailed.json"
 
         data = {
@@ -233,14 +219,13 @@ class Reporter:
         return json_path
 
     def save_html(self, report: EvalReport) -> Path:
-        """Generate HTML report with comparison view."""
         html_path = self.output_dir / f"eval_{self.timestamp}.html"
 
         html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
-    <title>CV-UML Evaluation - {report.timestamp}</title>
+    <title>Diagram2Algo Evaluation - {report.timestamp}</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                max-width: 1400px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #eee; }}
@@ -271,7 +256,7 @@ class Reporter:
     </style>
 </head>
 <body>
-    <h1>CV-UML Evaluation Report</h1>
+    <h1>Diagram2Algo Evaluation Report</h1>
     <p style="color: #888;">{report.timestamp}</p>
 
     <div class="summary">
@@ -303,7 +288,7 @@ class Reporter:
         </div>
 
         <div class="formula">
-            Score = 0.4 × Semantic_F1 + 0.3 × Sequence + 0.2 × Role + 0.1 × Count
+            Score = 0.4 * Semantic_F1 + 0.3 * Sequence + 0.2 * Role + 0.1 * Count
         </div>
     </div>
 
@@ -342,7 +327,6 @@ class Reporter:
     <h2>Detailed Comparison</h2>
 """
 
-        # Create matched sets for highlighting
         for m in report.file_metrics:
             matched_gt = {gt_idx for _, gt_idx, _ in m.metrics.matched_pairs}
             matched_ex = {ex_idx for ex_idx, _, _ in m.metrics.matched_pairs}
@@ -402,7 +386,6 @@ class Reporter:
         return html_path
 
     def save_all(self, report: EvalReport) -> dict[str, Path]:
-        """Save all formats."""
         return {
             'csv': self.save_csv(report),
             'json': self.save_detailed_json(report),

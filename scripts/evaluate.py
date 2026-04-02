@@ -1,5 +1,3 @@
-"""CV-UML Evaluation Script with semantic metrics."""
-
 import json
 import re
 import sys
@@ -17,7 +15,6 @@ console = Console()
 
 
 def parse_ground_truth(test_file: str) -> dict:
-    """Parse ground truth file."""
     ground_truth = {}
     current_file = None
     current_steps = []
@@ -71,7 +68,6 @@ def parse_ground_truth(test_file: str) -> dict:
 
 
 def find_result(results: list, filename: str):
-    """Find result by filename."""
     for result in results:
         source = Path(result.get('source_file', '')).name
         if source == filename:
@@ -80,11 +76,9 @@ def find_result(results: list, filename: str):
 
 
 def evaluate(results: list, ground_truth: dict, output_dir: str = str(EVAL_OUTPUT_DIR)) -> EvalReport:
-    """Run evaluation and generate report."""
     reporter = Reporter(output_dir)
     file_metrics = []
 
-    # Warmup embedding model
     console.print("[dim]Loading embedding model...[/dim]")
     warmup_metrics()
 
@@ -112,7 +106,6 @@ def evaluate(results: list, ground_truth: dict, output_dir: str = str(EVAL_OUTPU
                     extracted_steps=extracted
                 ))
             else:
-                # No extraction result for this file
                 metrics = calculate_metrics([], gt_steps)
                 file_metrics.append(FileMetrics(
                     filename=filename,
@@ -125,7 +118,6 @@ def evaluate(results: list, ground_truth: dict, output_dir: str = str(EVAL_OUTPU
 
             progress.advance(task)
 
-    # Generate and output report
     report = reporter.generate_report(file_metrics)
     reporter.print_console(report)
     reporter.save_all(report)
@@ -134,7 +126,6 @@ def evaluate(results: list, ground_truth: dict, output_dir: str = str(EVAL_OUTPU
 
 
 def run_full_evaluation(test_dir: str = str(TEST_DIR), gt_file: str = str(GT_FILE)):
-    """Run extraction + evaluation."""
     from app.llm import warmup
     from app.pipeline import process_path
 
@@ -150,7 +141,6 @@ def run_full_evaluation(test_dir: str = str(TEST_DIR), gt_file: str = str(GT_FIL
 
 
 def evaluate_from_file(results_file: str, gt_file: str = str(GT_FILE)):
-    """Evaluate from existing results file."""
     with open(results_file, encoding='utf-8') as f:
         data = json.load(f)
 

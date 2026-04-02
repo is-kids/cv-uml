@@ -1,29 +1,31 @@
 import logging
-import os
 from pathlib import Path
 from typing import Optional, Union
 
 from PIL import Image
 
+from app.config import settings
 from app.converters import (
     extract_archive,
     parse_bpmn,
     parse_drawio,
+    render_pdf_pages,
     render_svg,
 )
 from app.llm import image_inference, text_inference
 from app.models import ExtractionResult, FileInput, FileType
 from app.ocr import extract_text, is_tesseract_available
 from app.postprocessing import parse_llm_response, validate_steps
-from app.preprocessing import load_and_preprocess, preprocess_image
-from app.prompts import IMAGE_PROMPT, IMAGE_PROMPT_NO_OCR, SIMPLE_IMAGE_PROMPT, SIMPLE_TEXT_PROMPT, TEXT_PROMPT
-from app.router import get_file_type
+from app.preprocessing import load_and_preprocess, preprocess_image, preprocess_rendered
+from app.config import LLMProvider
+from app.prompts import (
+    IMAGE_PROMPT, IMAGE_PROMPT_NO_OCR, SIMPLE_IMAGE_PROMPT, SIMPLE_TEXT_PROMPT, TEXT_PROMPT,
+    IMAGE_PROMPT_EN, IMAGE_PROMPT_EN_NO_OCR, TEXT_PROMPT_EN,
+)
+from app.file_detector import get_file_type
 from app.scanner import scan_directory
 
 logger = logging.getLogger(__name__)
-
-# OCR enabled by default for quality (set USE_OCR=0 to disable)
-USE_OCR = os.environ.get("USE_OCR", "1") == "1"
 
 
 def process_image(
@@ -31,25 +33,25 @@ def process_image(
     source_file: str,
     page_or_slide: Optional[int] = None,
     use_simple_prompt: bool = False,
+    is_rendered: bool = False,
 ) -> ExtractionResult:
     try:
-        processed = preprocess_image(image)
+        processed = preprocess_rendered(image) if is_rendered else preprocess_image(image)
 
-        # Extract text with OCR if enabled and available (use processed image for speed)
         ocr_text = ""
-        if USE_OCR and is_tesseract_available():
+        if settings.use_ocr and is_tesseract_available():
             logger.info("Running OCR...")
             ocr_text = extract_text(processed) or ""
             if ocr_text:
                 logger.info(f"OCR extracted {len(ocr_text)} chars")
 
-        # Build prompt with or without OCR text
+        use_en = settings.llm_provider == LLMProvider.GEMINI
         if use_simple_prompt:
             prompt = SIMPLE_IMAGE_PROMPT
         elif ocr_text:
-            prompt = IMAGE_PROMPT.format(ocr_text=ocr_text)
+            prompt = (IMAGE_PROMPT_EN if use_en else IMAGE_PROMPT).format(ocr_text=ocr_text)
         else:
-            prompt = IMAGE_PROMPT_NO_OCR
+            prompt = IMAGE_PROMPT_EN_NO_OCR if use_en else IMAGE_PROMPT_NO_OCR
 
         response = image_inference(processed, prompt)
         result = parse_llm_response(response, source_file, page_or_slide)
@@ -72,7 +74,11 @@ def process_text_diagram(
     use_simple_prompt: bool = False,
 ) -> ExtractionResult:
     try:
-        prompt = SIMPLE_TEXT_PROMPT if use_simple_prompt else TEXT_PROMPT
+        use_en = settings.llm_provider == LLMProvider.GEMINI
+        if use_simple_prompt:
+            prompt = SIMPLE_TEXT_PROMPT
+        else:
+            prompt = TEXT_PROMPT_EN if use_en else TEXT_PROMPT
 
         response = text_inference(text, prompt)
         result = parse_llm_response(response, source_file)
@@ -115,8 +121,18 @@ def process_file(file_input: FileInput) -> list[ExtractionResult]:
         elif file_type == FileType.SVG:
             image = render_svg(path)
             if image:
-                return [process_image(image, source)]
+                return [process_image(image, source, is_rendered=True)]
             return [ExtractionResult(source_file=source, error="Failed to render SVG")]
+
+        elif file_type == FileType.PDF:
+            pages = render_pdf_pages(path)
+            if not pages:
+                return [ExtractionResult(source_file=source, error="Failed to render PDF")]
+            results = []
+            for page_num, image in enumerate(pages, 1):
+                result = process_image(image, source, page_or_slide=page_num, is_rendered=True)
+                results.append(result)
+            return results
 
         elif file_type == FileType.DRAWIO:
             text = parse_drawio(path)

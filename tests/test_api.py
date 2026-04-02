@@ -14,14 +14,14 @@ def client():
 
 @pytest.fixture
 def mock_inference():
-    with patch("main.image_inference") as mock:
+    with patch("app.routes.extract.image_inference") as mock:
         mock.return_value = '{"diagram_type": "sequence", "steps": [{"number": 1, "action": "Test step"}], "confidence": 0.9}'
         yield mock
 
 
 @pytest.fixture
 def mock_warmup():
-    with patch("main.warmup") as mock:
+    with patch("app.llm.factory.warmup") as mock:
         mock.return_value = True
         yield mock
 

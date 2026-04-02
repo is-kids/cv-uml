@@ -4,7 +4,7 @@ from typing import Generator, Optional, Union
 
 from app.converters.archive import compute_file_hash, extract_archive
 from app.models import FileInput, FileType
-from app.router import get_file_type
+from app.file_detector import get_file_type
 
 logger = logging.getLogger(__name__)
 

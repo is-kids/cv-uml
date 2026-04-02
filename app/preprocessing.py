@@ -3,11 +3,13 @@ from typing import Optional
 
 from PIL import Image, ImageEnhance, ImageOps
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
-# Default max dimension for resizing (smaller = faster inference)
-MAX_DIMENSION = 768
+MAX_DIMENSION = settings.max_image_dimension
 MIN_DIMENSION = 224
+MAX_DIMENSION_HIRES = min(settings.max_image_dimension + 256, 1280)
 
 
 def resize_image(
@@ -16,15 +18,12 @@ def resize_image(
     min_dim: int = MIN_DIMENSION,
 ) -> Image.Image:
     width, height = image.size
-
-    # Check if resize is needed
     max_current = max(width, height)
     min_current = min(width, height)
 
     if max_current <= max_dim and min_current >= min_dim:
         return image
 
-    # Calculate new size
     if max_current > max_dim:
         scale = max_dim / max_current
     elif min_current < min_dim:
@@ -50,14 +49,10 @@ def enhance_sharpness(image: Image.Image, factor: float = 1.2) -> Image.Image:
 
 
 def is_dark_background(image: Image.Image, threshold: float = 0.4) -> bool:
-    # Convert to grayscale
     gray = image.convert("L")
-
-    # Sample corners and edges
     width, height = gray.size
     samples = []
 
-    # Sample corners (10% inset)
     margin_x = int(width * 0.1)
     margin_y = int(height * 0.1)
 
@@ -73,7 +68,6 @@ def is_dark_background(image: Image.Image, threshold: float = 0.4) -> bool:
         y = max(0, min(y, height - 1))
         samples.append(gray.getpixel((x, y)))
 
-    # Calculate average brightness (0-255 -> 0-1)
     avg_brightness = sum(samples) / len(samples) / 255.0
     return avg_brightness < threshold
 
@@ -81,7 +75,6 @@ def is_dark_background(image: Image.Image, threshold: float = 0.4) -> bool:
 def invert_dark_background(image: Image.Image) -> Image.Image:
     if is_dark_background(image):
         logger.debug("Dark background detected, inverting image")
-        # Handle RGBA images
         if image.mode == "RGBA":
             r, g, b, a = image.split()
             rgb = Image.merge("RGB", (r, g, b))
@@ -91,7 +84,6 @@ def invert_dark_background(image: Image.Image) -> Image.Image:
         elif image.mode == "RGB":
             return ImageOps.invert(image)
         else:
-            # Convert to RGB, invert, convert back
             rgb = image.convert("RGB")
             inverted = ImageOps.invert(rgb)
             return inverted.convert(image.mode)
@@ -100,7 +92,6 @@ def invert_dark_background(image: Image.Image) -> Image.Image:
 
 def convert_to_rgb(image: Image.Image) -> Image.Image:
     if image.mode == "RGBA":
-        # Create white background
         background = Image.new("RGB", image.size, (255, 255, 255))
         background.paste(image, mask=image.split()[3])
         return background
@@ -118,22 +109,24 @@ def preprocess_image(
 ) -> Image.Image:
     result = image.copy()
 
-    # Handle dark backgrounds first (before other processing)
     if handle_dark:
         result = invert_dark_background(result)
 
-    # Convert to RGB
     result = convert_to_rgb(result)
 
-    # Resize
     if resize:
         result = resize_image(result, max_dim=max_dim)
 
-    # Enhance
     if enhance:
         result = enhance_contrast(result, factor=1.2)
         result = enhance_sharpness(result, factor=1.1)
 
+    return result
+
+
+def preprocess_rendered(image: Image.Image) -> Image.Image:
+    result = convert_to_rgb(image)
+    result = resize_image(result, max_dim=MAX_DIMENSION_HIRES)
     return result
 
 

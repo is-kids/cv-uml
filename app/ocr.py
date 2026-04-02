@@ -9,16 +9,13 @@ logger = logging.getLogger(__name__)
 
 _tesseract_available = None
 
-# Windows: set tesseract path if not in PATH
 def _configure_tesseract():
     try:
         import pytesseract
 
-        # Check if already works
         if shutil.which("tesseract"):
             return
 
-        # Common Windows paths
         common_paths = [
             r"C:\Program Files\Tesseract-OCR\tesseract.exe",
             r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",

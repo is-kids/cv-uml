@@ -3,163 +3,314 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CV-UML</title>
+    <title>Diagram2Algo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg: #1a1a2e;
-            --card: #16213e;
-            --el: #0f3460;
-            --accent: #00d4ff;
-            --text: #eee;
-            --dim: #888;
-            --actor: #ffaa00;
-            --ok: #00ff88;
-            --err: #ff4444;
-            --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --bg: #0b0f1a;
+            --surface: #111827;
+            --surface2: #1a2235;
+            --border: #1e293b;
+            --border-hover: #334155;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59,130,246,.15);
+            --accent2: #8b5cf6;
+            --text: #f1f5f9;
+            --text2: #94a3b8;
+            --text3: #64748b;
+            --green: #22c55e;
+            --yellow: #eab308;
+            --orange: #f97316;
+            --red: #ef4444;
+            --font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --mono: 'JetBrains Mono', 'Consolas', monospace;
+            --radius: 12px;
+            --radius-sm: 8px;
         }
-        body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
-        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
 
-        header { text-align: center; padding: 30px 0 10px; }
-        header h1 { color: var(--accent); font-size: 28px; }
-        header p { color: var(--dim); font-size: 14px; margin-top: 4px; }
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
 
-        nav { display: flex; gap: 8px; justify-content: center; margin: 20px 0; }
+        /* Subtle grid bg */
+        body::before {
+            content: '';
+            position: fixed; inset: 0;
+            background-image:
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59,130,246,.08), transparent),
+                radial-gradient(ellipse 60% 40% at 80% 100%, rgba(139,92,246,.06), transparent);
+            pointer-events: none; z-index: 0;
+        }
+
+        .container { max-width: 960px; margin: 0 auto; padding: 20px 24px; position: relative; z-index: 1; }
+
+        /* ---- Header ---- */
+        header { text-align: center; padding: 48px 0 8px; }
+        .logo {
+            display: inline-flex; align-items: center; gap: 12px;
+            font-size: 32px; font-weight: 700; letter-spacing: -.5px;
+        }
+        .logo-icon {
+            width: 44px; height: 44px; border-radius: 12px;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px; color: #fff; box-shadow: 0 0 24px rgba(59,130,246,.3);
+        }
+        .logo-text span { background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        header p { color: var(--text3); font-size: 15px; margin-top: 8px; font-weight: 400; }
+
+        /* ---- Status badge ---- */
+        .status-bar { display: flex; justify-content: center; margin: 16px 0 4px; }
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 5px 14px; border-radius: 20px;
+            background: var(--surface); border: 1px solid var(--border);
+            font-size: 12px; color: var(--text2);
+        }
+        .status-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--text3); flex-shrink: 0;
+        }
+        .status-dot.online { background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,.5); }
+        .status-dot.error { background: var(--red); box-shadow: 0 0 6px rgba(239,68,68,.5); }
+
+        /* ---- Nav ---- */
+        nav {
+            display: flex; gap: 4px; justify-content: center; margin: 24px 0;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 10px; padding: 4px; width: fit-content; margin-left: auto; margin-right: auto;
+        }
         nav button {
-            padding: 10px 28px; border: 1px solid var(--el); border-radius: 6px;
-            background: var(--card); color: var(--dim); font-size: 14px; cursor: pointer;
-            transition: all .2s;
+            padding: 10px 28px; border: none; border-radius: 8px;
+            background: transparent; color: var(--text3); font-size: 14px;
+            font-weight: 500; cursor: pointer; transition: all .2s; font-family: var(--font);
         }
-        nav button.active { background: var(--el); color: var(--accent); border-color: var(--accent); }
-        nav button:hover { border-color: var(--accent); color: var(--text); }
+        nav button.active { background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(59,130,246,.3); }
+        nav button:not(.active):hover { color: var(--text); background: var(--surface2); }
 
         .tab { display: none; }
-        .tab.active { display: block; }
+        .tab.active { display: block; animation: fadeIn .3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
+        /* ---- Upload ---- */
         .upload-area {
-            border: 2px dashed #334; border-radius: 12px; padding: 50px 20px;
-            text-align: center; cursor: pointer; transition: all .2s;
+            border: 2px dashed var(--border); border-radius: var(--radius); padding: 60px 20px;
+            text-align: center; cursor: pointer; transition: all .25s;
+            background: var(--surface); position: relative; overflow: hidden;
         }
-        .upload-area:hover, .upload-area.dragover { border-color: var(--accent); background: rgba(0,212,255,.05); }
-        .upload-area h3 { color: var(--text); margin-bottom: 8px; }
-        .upload-area p { color: var(--dim); font-size: 13px; }
+        .upload-area::before {
+            content: ''; position: absolute; inset: 0;
+            background: radial-gradient(circle at 50% 50%, var(--accent-glow), transparent 70%);
+            opacity: 0; transition: opacity .3s;
+        }
+        .upload-area:hover::before, .upload-area.dragover::before { opacity: 1; }
+        .upload-area:hover, .upload-area.dragover { border-color: var(--accent); }
+        .upload-icon {
+            width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 14px;
+            background: var(--surface2); display: flex; align-items: center; justify-content: center;
+            font-size: 24px; position: relative;
+        }
+        .upload-area h3 { color: var(--text); font-size: 16px; font-weight: 600; margin-bottom: 6px; position: relative; }
+        .upload-area p { color: var(--text3); font-size: 13px; position: relative; }
         .upload-area input { display: none; }
-
-        .loading { text-align: center; padding: 40px; display: none; }
-        .loading.active { display: block; }
-        .spinner {
-            width: 40px; height: 40px; border: 3px solid var(--el); border-top-color: var(--accent);
-            border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 15px;
+        .file-chips {
+            display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+            margin-top: 14px; position: relative;
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .loading p { color: var(--dim); }
-        .timer { color: var(--accent); font-weight: bold; }
+        .file-chip {
+            padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 500;
+            background: var(--surface2); color: var(--text3); border: 1px solid var(--border);
+        }
 
+        /* ---- Loading ---- */
+        .loading { text-align: center; padding: 48px 20px; display: none; }
+        .loading.active { display: block; }
+        .loader {
+            width: 48px; height: 48px; margin: 0 auto 20px; position: relative;
+        }
+        .loader::before, .loader::after {
+            content: ''; position: absolute; inset: 0; border-radius: 50%;
+            border: 3px solid transparent;
+        }
+        .loader::before { border-top-color: var(--accent); animation: spin .8s linear infinite; }
+        .loader::after { border-top-color: var(--accent2); animation: spin 1.2s linear infinite reverse; inset: 6px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading p { color: var(--text2); font-size: 14px; }
+        .timer { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+        /* ---- Results ---- */
         .results { margin-top: 20px; }
 
         .result-card {
-            background: var(--card); border-radius: 8px; padding: 20px; margin-bottom: 16px;
-            border-left: 3px solid var(--accent);
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 20px 24px; margin-bottom: 14px; transition: border-color .2s;
         }
-        .result-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-        .result-title { font-weight: bold; font-size: 16px; }
+        .result-card:hover { border-color: var(--border-hover); }
+        .result-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+        .result-title { font-weight: 600; font-size: 15px; }
         .badge {
-            background: var(--el); color: var(--accent); padding: 2px 10px;
-            border-radius: 12px; font-size: 12px;
+            padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: .5px;
+            background: var(--accent-glow); color: var(--accent); border: 1px solid rgba(59,130,246,.2);
         }
-        .confidence {
-            margin-left: auto; font-size: 13px;
+        .confidence { margin-left: auto; font-size: 13px; color: var(--text2); display: flex; align-items: center; gap: 8px; }
+        .conf-bar {
+            width: 64px; height: 5px; background: var(--surface2); border-radius: 3px; overflow: hidden;
         }
-        .conf-bar { display: inline-block; width: 60px; height: 6px; background: var(--el); border-radius: 3px; vertical-align: middle; margin-left: 6px; }
-        .conf-fill { height: 100%; border-radius: 3px; }
+        .conf-fill { height: 100%; border-radius: 3px; transition: width .5s ease; }
 
         .step {
-            background: var(--el); border-radius: 6px; padding: 10px 14px; margin: 6px 0;
-            border-left: 3px solid var(--accent); font-size: 14px;
+            display: flex; align-items: baseline; gap: 10px;
+            padding: 10px 14px; margin: 4px 0; border-radius: var(--radius-sm);
+            background: var(--surface2); font-size: 14px; line-height: 1.5;
+            border-left: 3px solid var(--accent); transition: background .15s;
         }
-        .step-num { color: var(--accent); font-weight: bold; margin-right: 8px; }
-        .step-actor { color: var(--actor); margin-right: 6px; }
-        .step-target { color: var(--dim); margin-left: 6px; }
-        .step-note { color: var(--dim); font-style: italic; font-size: 12px; margin-top: 4px; }
+        .step:hover { background: #1e2a3f; }
+        .step-num { color: var(--accent); font-weight: 600; min-width: 24px; font-variant-numeric: tabular-nums; }
+        .step-actor {
+            color: var(--orange); font-weight: 500; background: rgba(249,115,22,.1);
+            padding: 1px 8px; border-radius: 4px; font-size: 12px; white-space: nowrap;
+        }
+        .step-action { flex: 1; }
+        .step-target { color: var(--text3); font-size: 13px; white-space: nowrap; }
+        .step-target::before { content: '\2192  '; }
+        .step-note { color: var(--text3); font-style: italic; font-size: 12px; padding-left: 34px; margin: -2px 0 4px; }
 
-        .step-count { color: var(--dim); font-size: 13px; margin-top: 10px; }
+        .step-count { color: var(--text3); font-size: 13px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 
-        .error-box { background: #4a1a1a; border-left: 3px solid var(--err); border-radius: 6px; padding: 12px 16px; color: var(--err); margin: 10px 0; }
+        .error-box {
+            background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.2);
+            border-radius: var(--radius-sm); padding: 12px 16px; color: var(--red);
+            font-size: 14px; margin: 10px 0;
+        }
 
         .btn-generate-from {
-            margin-top: 12px; padding: 6px 14px; background: var(--el); color: var(--accent);
-            border: 1px solid var(--accent); border-radius: 6px; cursor: pointer; font-size: 12px;
+            margin-top: 12px; padding: 8px 16px; background: transparent;
+            color: var(--accent); border: 1px solid rgba(59,130,246,.3); border-radius: var(--radius-sm);
+            cursor: pointer; font-size: 13px; font-weight: 500; transition: all .2s; font-family: var(--font);
         }
-        .btn-generate-from:hover { background: var(--accent); color: var(--bg); }
+        .btn-generate-from:hover { background: var(--accent-glow); border-color: var(--accent); }
 
-        .gen-form { background: var(--card); border-radius: 8px; padding: 20px; }
+        /* ---- Generate tab ---- */
+        .gen-form { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; }
+        .gen-top { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .gen-top select, .gen-top input {
+            padding: 10px 14px; background: var(--surface2); border: 1px solid var(--border);
+            border-radius: var(--radius-sm); color: var(--text); font-size: 14px;
+            font-family: var(--font); transition: border-color .2s;
+        }
+        .gen-top select:focus, .gen-top input:focus { outline: none; border-color: var(--accent); }
+        .gen-top input { flex: 1; min-width: 200px; }
+        .gen-top input::placeholder { color: var(--text3); }
+
+        .labels { display: flex; gap: 8px; margin-bottom: 6px; padding: 0 4px; }
+        .labels span { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: .5px; font-weight: 500; }
+        .labels .num { width: 42px; }
+        .labels .actor, .labels .target, .labels .note { width: 120px; }
+        .labels .action { flex: 1; }
+        .labels .ph { width: 32px; }
+
         .gen-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
         .gen-row input, .gen-row select {
-            padding: 8px 10px; background: var(--el); border: 1px solid #334; border-radius: 4px;
-            color: var(--text); font-size: 13px;
+            padding: 9px 12px; background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text); font-size: 13px; font-family: var(--font);
+            transition: border-color .2s;
         }
-        .gen-row input::placeholder { color: #556; }
-        .gen-row .num { width: 40px; text-align: center; }
+        .gen-row input:focus { outline: none; border-color: var(--accent); }
+        .gen-row input::placeholder { color: #3a4a60; }
+        .gen-row .num { width: 42px; text-align: center; color: var(--text3); }
         .gen-row .actor, .gen-row .target, .gen-row .note { width: 120px; }
         .gen-row .action { flex: 1; }
         .gen-row .remove-btn {
-            background: none; border: none; color: var(--err); cursor: pointer; font-size: 18px; padding: 0 6px;
+            background: none; border: none; color: var(--text3); cursor: pointer;
+            font-size: 18px; padding: 4px 8px; border-radius: 6px; transition: all .15s;
         }
-        .gen-top { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
-        .gen-top select, .gen-top input { padding: 8px 12px; background: var(--el); border: 1px solid #334; border-radius: 4px; color: var(--text); font-size: 13px; }
-        .gen-top input { flex: 1; min-width: 200px; }
-        .gen-actions { display: flex; gap: 10px; margin-top: 12px; }
-        .btn {
-            padding: 10px 24px; border: none; border-radius: 6px; cursor: pointer;
-            font-size: 14px; transition: all .2s;
-        }
-        .btn-primary { background: var(--accent); color: var(--bg); font-weight: bold; }
-        .btn-primary:hover { opacity: .85; }
-        .btn-secondary { background: var(--el); color: var(--text); border: 1px solid #334; }
-        .btn-secondary:hover { border-color: var(--accent); }
+        .gen-row .remove-btn:hover { color: var(--red); background: rgba(239,68,68,.1); }
 
+        .gen-actions { display: flex; gap: 10px; margin-top: 16px; }
+        .btn {
+            padding: 10px 24px; border: none; border-radius: var(--radius-sm); cursor: pointer;
+            font-size: 14px; font-weight: 500; transition: all .2s; font-family: var(--font);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            color: #fff; box-shadow: 0 2px 12px rgba(59,130,246,.25);
+        }
+        .btn-primary:hover { box-shadow: 0 4px 20px rgba(59,130,246,.35); transform: translateY(-1px); }
+        .btn-secondary { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); }
+        .btn-secondary:hover { border-color: var(--border-hover); color: var(--text); }
+
+        /* ---- Generate results ---- */
         .gen-result { margin-top: 20px; }
         .code-block {
-            background: var(--el); border-radius: 6px; padding: 16px; position: relative;
-            font-family: 'Consolas', 'Monaco', monospace; font-size: 13px;
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+            padding: 20px; position: relative;
+            font-family: var(--mono); font-size: 13px; line-height: 1.6;
             white-space: pre-wrap; word-break: break-all; overflow-x: auto;
         }
         .copy-btn {
-            position: absolute; top: 8px; right: 8px; background: var(--card); border: 1px solid #334;
-            color: var(--dim); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;
+            position: absolute; top: 12px; right: 12px; background: var(--surface2);
+            border: 1px solid var(--border); color: var(--text3); padding: 5px 12px;
+            border-radius: 6px; cursor: pointer; font-size: 12px; font-family: var(--font);
+            transition: all .2s;
         }
         .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
         .gen-image { margin-top: 16px; text-align: center; }
-        .gen-image img { max-width: 100%; border-radius: 8px; background: #fff; cursor: pointer; }
-        .img-actions { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+        .gen-image img {
+            max-width: 100%; border-radius: var(--radius); background: #fff;
+            cursor: pointer; box-shadow: 0 4px 24px rgba(0,0,0,.3);
+        }
+        .img-actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
         .img-actions button {
-            padding: 6px 14px; background: var(--el); color: var(--text); border: 1px solid #334;
-            border-radius: 4px; cursor: pointer; font-size: 12px;
+            padding: 8px 16px; background: var(--surface); color: var(--text2);
+            border: 1px solid var(--border); border-radius: var(--radius-sm);
+            cursor: pointer; font-size: 13px; font-family: var(--font); transition: all .2s;
         }
         .img-actions button:hover { border-color: var(--accent); color: var(--accent); }
+
         .fullscreen-overlay {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,.9); z-index: 1000; cursor: pointer;
-            justify-content: center; align-items: center;
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,.92); z-index: 1000; cursor: pointer;
+            justify-content: center; align-items: center; backdrop-filter: blur(8px);
         }
         .fullscreen-overlay.active { display: flex; }
-        .fullscreen-overlay img { max-width: 95%; max-height: 95%; background: #fff; border-radius: 8px; }
+        .fullscreen-overlay img { max-width: 95%; max-height: 95%; background: #fff; border-radius: var(--radius); }
 
-        .labels { display: flex; gap: 8px; margin-bottom: 8px; padding: 0 4px; }
-        .labels span { font-size: 11px; color: var(--dim); }
-        .labels .num { width: 40px; }
-        .labels .actor, .labels .target, .labels .note { width: 120px; }
-        .labels .action { flex: 1; }
-        .labels .ph { width: 30px; }
+        /* ---- Responsive ---- */
+        @media (max-width: 640px) {
+            .container { padding: 12px 16px; }
+            header { padding-top: 32px; }
+            .logo { font-size: 26px; }
+            .upload-area { padding: 40px 16px; }
+            .labels { display: none; }
+            .gen-row { flex-wrap: wrap; }
+            .gen-row .actor, .gen-row .target, .gen-row .note { width: calc(50% - 4px); }
+            .gen-row .action { width: 100%; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>CV-UML</h1>
-            <p>Извлечение алгоритмов из диаграмм</p>
+            <div class="logo">
+                <div class="logo-icon">D2A</div>
+                <div class="logo-text"><span>Diagram2Algo</span></div>
+            </div>
+            <p>Извлечение алгоритмов из диаграмм с помощью мультимодальной LLM</p>
         </header>
+
+        <div class="status-bar">
+            <div class="status-badge" id="status-badge">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Проверка...</span>
+            </div>
+        </div>
 
         <nav>
             <button class="active" onclick="switchTab('extract')">Извлечение</button>
@@ -168,13 +319,24 @@
 
         <div id="extract-tab" class="tab active">
             <div class="upload-area" id="upload-area">
-                <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.tiff,.tif,.svg,.drawio,.dio,.xml,.bpmn,.zip,.rar,.7z">
-                <h3>Перетащите файл сюда или нажмите для выбора</h3>
-                <p>PNG, JPG, SVG, DrawIO, BPMN, ZIP, RAR, 7Z</p>
+                <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.gif,.bmp,.webp,.tiff,.tif,.svg,.pdf,.drawio,.dio,.xml,.bpmn,.zip,.rar,.7z">
+                <div class="upload-icon">&#128196;</div>
+                <h3>Перетащите файл или нажмите для выбора</h3>
+                <p>Поддерживаемые форматы:</p>
+                <div class="file-chips">
+                    <span class="file-chip">PNG</span>
+                    <span class="file-chip">JPG</span>
+                    <span class="file-chip">SVG</span>
+                    <span class="file-chip">PDF</span>
+                    <span class="file-chip">DrawIO</span>
+                    <span class="file-chip">BPMN</span>
+                    <span class="file-chip">ZIP</span>
+                    <span class="file-chip">RAR</span>
+                </div>
             </div>
             <div class="loading" id="extract-loading">
-                <div class="spinner"></div>
-                <p>Обработка... <span class="timer" id="extract-timer">0s</span></p>
+                <div class="loader"></div>
+                <p>Анализ диаграммы... <span class="timer" id="extract-timer">0s</span></p>
             </div>
             <div class="results" id="extract-results"></div>
         </div>
@@ -203,8 +365,8 @@
                 </div>
             </div>
             <div class="loading" id="gen-loading">
-                <div class="spinner"></div>
-                <p>Генерация...</p>
+                <div class="loader"></div>
+                <p>Генерация диаграммы...</p>
             </div>
             <div class="gen-result" id="gen-results"></div>
         </div>
@@ -216,8 +378,25 @@
 
     <script>
         let timerInterval = null;
-        let timerStart = 0;
 
+        // ---- Health check ----
+        async function checkHealth() {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            try {
+                const r = await fetch('/api/health');
+                const d = await r.json();
+                dot.className = 'status-dot online';
+                text.textContent = d.provider + ' \u00b7 ' + d.model;
+            } catch {
+                dot.className = 'status-dot error';
+                text.textContent = 'Сервер недоступен';
+            }
+        }
+        checkHealth();
+        setInterval(checkHealth, 30000);
+
+        // ---- Tabs ----
         function switchTab(name) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
@@ -225,6 +404,7 @@
             document.querySelector(`nav button[onclick="switchTab('${name}')"]`).classList.add('active');
         }
 
+        // ---- Upload ----
         const uploadArea = document.getElementById('upload-area');
         const fileInput = document.getElementById('file-input');
 
@@ -232,23 +412,19 @@
         uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
         uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
         uploadArea.addEventListener('drop', e => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
+            e.preventDefault(); uploadArea.classList.remove('dragover');
             if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0]);
         });
         fileInput.addEventListener('change', () => { if (fileInput.files.length) uploadFile(fileInput.files[0]); });
 
         function startTimer(id) {
-            timerStart = Date.now();
+            const start = Date.now();
             const el = document.getElementById(id);
             timerInterval = setInterval(() => {
-                el.textContent = Math.floor((Date.now() - timerStart) / 1000) + 's';
-            }, 200);
+                el.textContent = ((Date.now() - start) / 1000).toFixed(1) + 's';
+            }, 100);
         }
-
-        function stopTimer() {
-            if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-        }
+        function stopTimer() { if (timerInterval) { clearInterval(timerInterval); timerInterval = null; } }
 
         async function uploadFile(file) {
             const loading = document.getElementById('extract-loading');
@@ -264,10 +440,9 @@
                 const resp = await fetch('/api/extract/file', { method: 'POST', body: form });
                 if (!resp.ok) {
                     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-                    throw new Error(err.detail || resp.statusText);
+                    throw new Error(err.detail || err.error || resp.statusText);
                 }
-                const data = await resp.json();
-                renderResults(data);
+                renderResults(await resp.json());
             } catch (e) {
                 results.innerHTML = `<div class="error-box">${e.message}</div>`;
             } finally {
@@ -277,6 +452,7 @@
             }
         }
 
+        // ---- Render results ----
         function renderResults(data) {
             const container = document.getElementById('extract-results');
             if (!data || !data.length) {
@@ -286,22 +462,27 @@
             container.innerHTML = data.map((r, idx) => {
                 const title = r.source_file.split(/[/\\]/).pop();
                 const typeBadge = r.diagram_type ? `<span class="badge">${r.diagram_type}</span>` : '';
-                const confColor = r.confidence >= 0.7 ? 'var(--ok)' : r.confidence >= 0.4 ? 'var(--actor)' : 'var(--err)';
+
                 const confPct = Math.round(r.confidence * 100);
+                const confColor = r.confidence >= .7 ? 'var(--green)' : r.confidence >= .4 ? 'var(--yellow)' : 'var(--red)';
                 const confHtml = r.confidence > 0
                     ? `<span class="confidence">${confPct}%<span class="conf-bar"><span class="conf-fill" style="width:${confPct}%;background:${confColor}"></span></span></span>`
                     : '';
+
                 const errorHtml = r.error ? `<div class="error-box">${r.error}</div>` : '';
+
                 const stepsHtml = (r.steps || []).map(s => {
-                    const actor = s.actor ? `<span class="step-actor">[${s.actor}]</span>` : '';
-                    const target = s.target && s.target !== s.actor ? `<span class="step-target">→ ${s.target}</span>` : '';
+                    const actor = s.actor ? `<span class="step-actor">${s.actor}</span>` : '';
+                    const target = s.target && s.target !== s.actor ? `<span class="step-target">${s.target}</span>` : '';
                     const note = s.note && s.note !== s.action ? `<div class="step-note">${s.note}</div>` : '';
-                    return `<div class="step"><span class="step-num">${s.number || '•'}.</span>${actor}${s.action}${target}${note}</div>`;
+                    return `<div class="step"><span class="step-num">${s.number || '\u2022'}</span>${actor}<span class="step-action">${s.action}</span>${target}</div>${note}`;
                 }).join('');
+
                 const count = (r.steps || []).length;
                 const genBtn = count > 0
-                    ? `<button class="btn-generate-from" onclick="prefillFromExtraction(${idx})">Сгенерировать диаграмму из этих шагов</button>`
+                    ? `<button class="btn-generate-from" onclick="prefillFromExtraction(${idx})">Сгенерировать диаграмму из шагов \u2192</button>`
                     : '';
+
                 return `<div class="result-card">
                     <div class="result-header"><span class="result-title">${title}</span>${typeBadge}${confHtml}</div>
                     ${errorHtml}${stepsHtml}
@@ -314,6 +495,7 @@
 
         window._lastResults = [];
 
+        // ---- Prefill generate from extraction ----
         function prefillFromExtraction(idx) {
             const r = window._lastResults[idx];
             if (!r || !r.steps) return;
@@ -325,6 +507,7 @@
             r.steps.forEach(s => addStepRow(s));
         }
 
+        // ---- Step editor ----
         function addStepRow(data) {
             const editor = document.getElementById('steps-editor');
             const n = editor.children.length + 1;
@@ -336,7 +519,7 @@
                 <input class="action" type="text" placeholder="Действие *" value="${data ? data.action || '' : ''}">
                 <input class="target" type="text" placeholder="Цель" value="${data ? data.target || '' : ''}">
                 <input class="note" type="text" placeholder="Заметка" value="${data ? data.note || '' : ''}">
-                <button class="remove-btn" onclick="this.parentElement.remove();renumber()">×</button>
+                <button class="remove-btn" onclick="this.parentElement.remove();renumber()">\u00d7</button>
             `;
             editor.appendChild(row);
         }
@@ -355,7 +538,7 @@
                 steps.push({
                     number: parseInt(row.querySelector('.num').value) || steps.length + 1,
                     actor: row.querySelector('.actor').value.trim() || null,
-                    action: action,
+                    action,
                     target: row.querySelector('.target').value.trim() || null,
                     note: row.querySelector('.note').value.trim() || null,
                 });
@@ -363,6 +546,7 @@
             return steps;
         }
 
+        // ---- Generate diagram ----
         async function generateDiagram() {
             const steps = collectSteps();
             if (!steps.length) return;
@@ -373,22 +557,20 @@
             loading.classList.add('active');
 
             try {
-                const payload = {
-                    steps: steps,
-                    diagram_type: document.getElementById('gen-type').value,
-                    title: document.getElementById('gen-title').value.trim() || null,
-                };
                 const resp = await fetch('/api/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
+                    body: JSON.stringify({
+                        steps,
+                        diagram_type: document.getElementById('gen-type').value,
+                        title: document.getElementById('gen-title').value.trim() || null,
+                    }),
                 });
                 if (!resp.ok) {
                     const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-                    throw new Error(err.detail || resp.statusText);
+                    throw new Error(err.detail || err.error || resp.statusText);
                 }
-                const data = await resp.json();
-                renderGenResult(data);
+                renderGenResult(await resp.json());
             } catch (e) {
                 results.innerHTML = `<div class="error-box">${e.message}</div>`;
             } finally {
@@ -397,49 +579,43 @@
         }
 
         function renderGenResult(data) {
-            const container = document.getElementById('gen-results');
-            let html = '';
-
-            if (data.error) {
-                html += `<div class="error-box">${data.error}</div>`;
-            }
-
+            const c = document.getElementById('gen-results');
+            let h = '';
+            if (data.error) h += `<div class="error-box">${data.error}</div>`;
             if (data.plantuml_code) {
-                html += `<div class="code-block"><button class="copy-btn" onclick="copyCode()">Копировать</button><code id="puml-code">${data.plantuml_code.replace(/</g, '&lt;')}</code></div>`;
+                h += `<div class="code-block"><button class="copy-btn" onclick="copyCode()">Копировать</button><code id="puml-code">${data.plantuml_code.replace(/</g,'&lt;')}</code></div>`;
             }
-
             if (data.png_base64) {
-                const src = `data:image/png;base64,${data.png_base64}`;
-                html += `<div class="gen-image"><img src="${src}" alt="Diagram" onclick="viewFullscreen('${src}')"></div>`;
-                html += `<div class="img-actions">
-                    <button onclick="viewFullscreen('${src}')">Открыть</button>
-                    <button onclick="downloadImage('${src}', 'diagram.png')">Скачать PNG</button>
-                </div>`;
+                const src = 'data:image/png;base64,' + data.png_base64;
+                h += `<div class="gen-image"><img src="${src}" alt="Diagram" onclick="viewFullscreen(this.src)"></div>`;
+                h += `<div class="img-actions"><button onclick="viewFullscreen('${src}')">Полный экран</button><button onclick="downloadImage('${src}','diagram.png')">Скачать PNG</button></div>`;
             } else if (data.plantuml_code && !data.error) {
-                html += `<div style="color:var(--dim);font-size:13px;margin-top:10px;">PNG недоступен (требуется Java + PlantUML)</div>`;
+                h += `<p style="color:var(--text3);font-size:13px;margin-top:12px">PNG недоступен (требуется Java + PlantUML)</p>`;
             }
-
-            container.innerHTML = html;
+            c.innerHTML = h;
         }
 
         function copyCode() {
             const code = document.getElementById('puml-code');
-            if (code) navigator.clipboard.writeText(code.textContent);
+            if (code) {
+                navigator.clipboard.writeText(code.textContent);
+                const btn = document.querySelector('.copy-btn');
+                btn.textContent = 'Скопировано!';
+                setTimeout(() => btn.textContent = 'Копировать', 1500);
+            }
         }
 
         function viewFullscreen(src) {
-            const overlay = document.getElementById('fullscreen');
             document.getElementById('fullscreen-img').src = src;
-            overlay.classList.add('active');
+            document.getElementById('fullscreen').classList.add('active');
         }
 
-        function downloadImage(src, filename) {
+        function downloadImage(src, name) {
             const a = document.createElement('a');
-            a.href = src;
-            a.download = filename;
-            a.click();
+            a.href = src; a.download = name; a.click();
         }
 
+        // Init 3 empty rows
         for (let i = 0; i < 3; i++) addStepRow();
     </script>
 </body>

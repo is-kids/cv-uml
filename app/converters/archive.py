@@ -25,7 +25,7 @@ def extract_archive(
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
     else:
-        output_path = Path(tempfile.mkdtemp(prefix="cv_uml_"))
+        output_path = Path(tempfile.mkdtemp(prefix="d2a_"))
 
     try:
         if suffix == ".zip":

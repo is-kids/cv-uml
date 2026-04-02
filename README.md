@@ -1,631 +1,195 @@
-# CV-UML
-
-**Сервис извлечения алгоритмов из изображений диаграмм**
-
-Принимает изображение диаграммы (BPMN, UML, C4 или произвольная схема) и на выходе формирует пошаговый алгоритм процесса, описанного на ней.
-
-Дополнительное задание: генерация диаграммы по текстовому описанию (обратная задача).
-
----
-
-## 1. Постановка задачи
-
-### Вход
-
-Поддерживаемые форматы файлов:
-
-| Категория | Форматы |
-|-----------|---------|
-| **Изображения** | PNG, JPG, JPEG, GIF, BMP, WebP, TIFF |
-| **XML-диаграммы** | Draw.io (.drawio, .dio), BPMN (.bpmn) |
-| **Архивы** | ZIP, RAR, 7Z (автоматическая распаковка) |
-
-> **Примечание:** PDF, PPTX, DOCX и SVG форматы не поддерживаются. Конвертируйте их в PNG/JPG перед обработкой.
-
-Возможные типы диаграмм:
-
-- **BPMN** — бизнес-процессы (основной случай в датасете)
-- **UML** — class, sequence, use-case диаграммы
-- **C4 Architecture** — контекст, контейнеры, компоненты
-- Схемы, нарисованные от руки
-- Диаграммы из презентаций
-
-### Выход
-
-Пошаговый алгоритм в структурированном формате:
-
-```json
-{
-  "diagram_type": "BPMN",
-  "title": "Оформление заказа",
-  "steps": [
-    { "step": 1, "role": "Клиент",  "action": "Оформляет заказ" },
-    { "step": 2, "role": "Система", "action": "Проверяет данные" },
-    { "step": 3, "role": "Система", "action": "Инициирует оплату" }
-  ]
-}
-```
-
-### Дополнительное задание (обратная задача)
-
-- **Вход:** текстовое описание алгоритма
-- **Выход:** изображение диаграммы (текст → PlantUML-код → рендеринг в PNG)
-
----
-
-## 2. Архитектура системы
-
-### 2.1 Схема потока данных
-
-```
-  Клиент (curl / UI)
-        │
-        │  POST /api/extract  (image file)
-        ▼
-  ┌─────────────────┐
-  │  FastAPI Gateway │   ← валидация, rate-limit, error handling
-  └────────┬────────┘
-           │
-           ▼
-  ┌─────────────────────┐
-  │  Pipeline           │
-  │  Orchestrator       │   ← координирует порядок шагов
-  └───┬──────────┬──────┘
-      │          │
-      ▼          ▼
-  ┌────────┐  ┌──────────┐
-  │ Preproc│  │ OCR      │
-  │(Pillow)│  │(Tesseract│
-  │resize, │  │ pytesser-│
-  │enhance │  │  act)    │
-  └───┬────┘  └────┬─────┘
-      │            │
-      │   image    │  extracted text labels
-      ▼            ▼
-  ┌───────────────────────┐
-  │  Multimodal LLM       │
-  │                       │   ← основной движок распознавания
-  │  Input:               │
-  │    • image (pixels)   │
-  │    • OCR-текст        │
-  │    • prompt           │
-  │                       │
-  │  Model: Qwen2-VL-2B / │
-  │  Phi-3-vision         │
-  └──────────┬────────────┘
-             │
-             ▼
-  ┌─────────────────────┐
-  │  Post-processing    │   ← парсинг JSON, валидация, филлер для edge cases
-  └──────────┬──────────┘
-             │
-             ▼
-  ┌─────────────────────┐
-  │  Response (JSON)    │
-  └─────────────────────┘
-```
+# Diagram2Algo
 
-### 2.2 Компоненты
+Сервис для извлечения алгоритмов из диаграмм. На вход — картинка (BPMN, UML, flowchart, что угодно), на выходе — структурированный пошаговый алгоритм в JSON. Есть и обратная задача: по описанию шагов генерируется PlantUML-диаграмма.
 
-| Компонент | Ответственность |
-|-----------|----------------|
-| **FastAPI Gateway** | HTTP-сервер, валидация входа, маршрутизация, OpenAPI-схема |
-| **Preprocessing** | `resize` до оптимального размера для модели, `enhance` контраст |
-| **OCR Module** | Извлечение текстовых меток из изображения — дополнительный контекст для LLM |
-| **Multimodal LLM** | Понимание визуальной структуры диаграммы + извлечение алгоритма |
-| **Post-processing** | Парсинг JSON из ответа модели, валидация структуры, handling edge cases |
+Работает через мультимодальную LLM — Gemini по умолчанию, OpenRouter (бесплатные модели) или Ollama для локального запуска. Поддерживается автоматический fallback между провайдерами.
 
-### 2.3 Где используется ML
+## Примеры
 
-Три уровня ML в системе:
+**Извлечение из flowchart:**
 
-1. **Multimodal LLM** (основной) — понимание изображения, извлечение структуры и семантики, генерация structured output. Это единый компонент, который заменяет отдельные детекторы объектов, OCR и парсеры графов.
+![Исходная диаграмма](screenshots/diagram_example.png)
 
-2. **OCR** (вспомогательный) — Tesseract извлекает текстовые метки из изображения и передаёт их как дополнительный контекст в LLM. Это повышает точность распознавания текста, особенно для диаграмм с мелким шрифтом.
+![Результат](screenshots/extract.png)
 
-3. **Text LLM** (для обратной задачи) — генерация PlantUML-кода из текстового описания алгоритма.
+**Диаграмма с ветвлением:**
 
-### 2.4 Почему Multimodal LLM, а не чистый CV-пайплайн
+![Исходная диаграмма](screenshots/diagram_example2.png)
 
-| Подход | Плюсы | Минусы |
-|--------|-------|--------|
-| Pure CV (OpenCV + детекторы) | Детальный контроль | Нужно обучать/fine-tune; плохая генерализация на hand-drawn; сложная graph construction |
-| OCR + Text LLM (без зрения) | Простота | Теряет структуру: не видит стрелки, направление потока |
-| **Multimodal LLM (наш выбор)** | Понимает и текст, и структуру за один проход; генерализуется на разные стили; open-source моделей достаточно | Требует ≥ 2B параметров; скорость на CPU — узкое место |
+![Результат](screenshots/extract2.png)
 
-### 2.5 Деплой
+**Генерация диаграммы из шагов:**
 
-```
-docker compose up
-```
+![Генерация](screenshots/generate.png)
 
-- Base image: `python:3.11-slim`
-- Модель скачивается при первом запуске и кэшируется в volume
-- Целевая среда: **CPU** (основной сценарий), GPU ≤ 8 GB (опционально)
-- Порт: `8000`
+**Swagger UI:**
 
----
+![Swagger](screenshots/swagger.png)
 
-## 3. Технологический стек
+![Swagger schemas](screenshots/swagger_schemas.png)
 
-### Язык и фреймворк
+## Запуск
 
-| Технология | Обоснование |
-|------------|-------------|
-| **Python 3.11** | Развитая ML-экосистема; все ключевые библиотеки имеют Python-биндинги |
-| **FastAPI** | Быстрый async HTTP-сервер; автогенерация OpenAPI; нативная поддержка `async`; легко тестируется |
-
-### ML / CV / LLM
-
-| Технология | Обоснование |
-|------------|-------------|
-| **HuggingFace Transformers** | Стандартная библиотека для загрузки и инференса open-source моделей |
-| **PyTorch** | Бэкенд для инференса; нативная поддержка GPU и CPU |
-| **Qwen2-VL-2B-Instruct** | Основная модель: 2B параметров, Apache 2.0, сильное многомодальное понимание, быстрее на CPU чем аналоги того же размера |
-| **Phi-3-vision-128k-instruct** | Альтернатива: 4.2B параметров, MIT лицензия, лучшее качество, но требует GPU ≤ 8 GB для разумной скорости |
-| **pytesseract + Tesseract** | OCR: локальная работа без внешних API, поддержка русского языка |
-
-### Обработка изображений
-
-| Технология | Обоснование |
-|------------|-------------|
-| **Pillow** | Загрузка, resize, enhance, конвертация форматов — стандартная библиотека Python |
-
-### Инфраструктура
-
-| Технология | Обоснование |
-|------------|-------------|
-| **Docker + Docker Compose** | Контейнеризация: единый запуск, воспроизводимость окружения |
-| **Pydantic v2** | Валидация входных/выходных данных; автогенерация API-схемы |
-
-### Для обратной задачи (бонус)
-
-| Технология | Обоснование |
-|------------|-------------|
-| **PlantUML JAR** | Рендеринг текстовых спецификаций диаграмм в PNG/SVG; запускается локально через `java -jar` |
-
----
-
-## 4. ROADMAP
-
-### Этап 1 — Анализ задачи и данных
-> **Результат:** команда полностью ориентирована в данных; формат входа/выхода зафиксирован; baseline понятен.
-
-- [ ] Изучить весь предоставленный датасет: типы диаграмм, количество, разнообразие стилей
-- [ ] Определить целевой формат выхода: шаги, роли, условия ветвления, start/end
-- [ ] Провести baseline: аналитически обработать 2–3 примера руками → зафиксировать "правильный ответ"
-- [ ] Сформулировать метрики оценки (как измерять качество извлечения)
-
-### Этап 2 — Выбор и первичная проверка модели
-> **Результат:** модель загружена локально, запускается, даёт осмысленный ответ на примере.
-
-- [ ] Загрузить **Qwen2-VL-2B-Instruct** через HuggingFace Hub
-- [ ] Написать минимальный inference-скрипт: загрузка изображения → формирование промпта → генерация ответа
-- [ ] Проверить на 2–3 примерах из датасета
-- [ ] Замерить время инференса на CPU (целевой порог: ≤ 20 сек)
-- [ ] Если скорость неудовлетворительна: попробовать 4-bit квантизацию через `bitsandbytes` или `GPTQ`
-- [ ] Если качество неудовлетворительно: переключить на Phi-3-vision (требует GPU)
-
-### Этап 3 — Реализация базового пайплайна
-> **Результат:** end-to-end flow работает локально: изображение → алгоритм.
-
-- [ ] **Preprocessing:** resize изображения до оптимального размера для модели; enhance контраст через `ImageEnhance`
-- [ ] **OCR:** извлечение текстовых меток через Tesseract; передача в модель как дополнительный контекст
-- [ ] **Prompt engineering:** разработать промпт, который принудительно выводит модель в `structured JSON output` со шагами алгоритма. Включить примеры (few-shot) из датасета
-- [ ] **Интеграция:** image + OCR-text → модель → parse JSON → объект ответа
-- [ ] **Тестирование:** проверить на примерах разных типов: BPMN, UML sequence, C4, hand-drawn
-- [ ] **Post-processing:** валидация JSON-структуры; fallback на regex-parsing если JSON невалиден
-
-### Этап 4 — Оборачивание в API
-> **Результат:** работающий REST-сервис с единым endpoint.
-
-- [ ] Создать FastAPI приложение
-- [ ] Endpoint `POST /api/extract` — вход: `multipart/form-data` (файл изображения), выход: `application/json`
-- [ ] Endpoint `GET /api/health` — проверка жизнеспособности сервиса
-- [ ] Error handling: невалидный файл, превышение размера, timeout модели, ошибка парсинга
-- [ ] Logging: каждый запрос логируется (input hash, время обработки, статус)
-- [ ] Тестирование через `curl` и/или Postman
-
-### Этап 5 — Docker-сборка
-> **Результат:** сервис запускается одной командой без локальной установки зависимостей.
-
-- [ ] Написать `Dockerfile` (multi-stage build для минимизации размера образа)
-- [ ] Написать `docker-compose.yml`: сервис + volume для кэша модели
-- [ ] Тест полного цикла: `docker compose up` → сервис поднимается → curl запрос → ответ
-- [ ] Оптимизация: `.dockerignore`, грамотная послойная стратегия кэша
-
-### Этап 6 — Валидация и оптимизация
-> **Результат:** количественная оценка точности; узкие места идентифицированы и миtigированы.
-
-- [ ] Прогнать модель на всём датасете
-- [ ] Сравнить результаты с ground truth (текстовые описания из `test.txt` и исходные PlantUML-спецификации)
-- [ ] Рассчитать метрики: точность шагов, полнота, detect rate для ролей
-- [ ] Провести анализ ошибок: на каких диаграммах модель ошибается и почему
-- [ ] Оптимизация промптов по результатам анализа
-- [ ] Оптимизация скорости: квантизация, resize стратегия, lazy loading модели
-
-### Этап 7 — Обратная задача (бонус)
-> **Результат:** дополнительный endpoint: текст → диаграмма.
-
-- [ ] Endpoint `POST /api/generate` — вход: текстовое описание алгоритма (JSON с полем `description`), выход: PNG изображения диаграммы
-- [ ] LLM генерирует PlantUML-код из текстового описания
-- [ ] PlantUML JAR рендерит код в изображение
-- [ ] Тестирование: описание → код → рендер → визуальная проверка
-
-### Этап 8 — Финальная подготовка
-> **Результат:** полированный сервис + материалы для защиты.
-
-- [ ] Обновить README: примеры использования, описание API
-- [ ] Подготовить набор демо-примеров (BPMN, UML, C4, hand-drawn)
-- [ ] Описать ограничения и возможные направления улучшения
-- [ ] Подготовить презентацию (≤ 5 минут): архитектура → демо → результаты → планы
-
----
-
-## 5. Приоритеты (если не хватает времени)
-
-```
-КРИТИЧНЫЙ        Этапы 1 → 2 → 3 → 4 → 5
-                 Без этих этапов нет работающего сервиса.
-
-ВАЖНЫЙ           Этап 6 — валидация
-                 Без неё нельзя говорить о качестве.
-
-БОНУС            Этап 7 — обратная задача
-                 Добавляет ценность, но не критичен.
-```
-
----
-
-## 6. Метрики оценки качества
-
-### Почему не простой text matching?
-
-Простое сравнение текста (Precision/Recall/F1 по точному совпадению) не работает для данной задачи:
-
-| Проблема | Пример |
-|----------|--------|
-| Синонимы | "создать запрос" vs "сформировать заявку" — одно и то же, но 0% совпадения |
-| Перевод | Ground truth на русском, модель отвечает на английском |
-| Порядок важен | Алгоритм — это последовательность, перепутанный порядок = ошибка |
-| Роли не учитываются | Важно КТО выполняет действие, а не только само действие |
-
-### Используемые метрики
-
-#### 1. Semantic F1 (вес: 40%)
-
-**Что измеряет:** Совпадение шагов по смыслу, а не по тексту.
-
-**Как работает:**
-- Используем sentence embeddings модель `paraphrase-multilingual-MiniLM-L12-v2`
-- Модель преобразует текст в вектор, захватывающий семантику
-- Сравниваем косинусное сходство между векторами
-- Порог совпадения: 0.5 (50% семантического сходства)
-
-**Пример:**
-```
-GT:        "Создание запроса"
-Extracted: "Create a request"
-Text similarity: ~5%  (разные языки)
-Semantic similarity: ~85%  (одинаковый смысл)
-```
-
-**Формула:**
-```
-Precision = matched_extracted / total_extracted
-Recall = matched_gt / total_gt
-F1 = 2 × Precision × Recall / (Precision + Recall)
-```
-
-#### 2. Sequence Score (вес: 30%)
-
-**Что измеряет:** Правильность порядка извлечённых шагов.
-
-**Компоненты:**
-
-**a) LCS Ratio (Longest Common Subsequence)**
-- Находит самую длинную общую подпоследовательность
-- `LCS_ratio = len(LCS) / max(len_gt, len_ex)`
-
-**b) Edit Distance Ratio**
-- Количество операций (вставка/удаление/замена) для преобразования одной последовательности в другую
-- `Edit_ratio = 1 - (edit_distance / max_length)`
-
-**Итоговый Sequence Score:**
-```
-Sequence = (LCS_ratio + Edit_ratio) / 2
-```
-
-**Пример:**
-```
-GT order:        [1, 2, 3, 4, 5]
-Extracted order: [1, 3, 2, 4, 5]  (шаги 2 и 3 перепутаны)
-LCS = [1, 3, 4, 5] → ratio = 4/5 = 0.80
-Edit distance = 2 → ratio = 1 - 2/5 = 0.60
-Sequence Score = (0.80 + 0.60) / 2 = 0.70
-```
-
-#### 3. Role Accuracy (вес: 20%)
-
-**Что измеряет:** Для совпавших шагов — правильно ли определена роль/актор.
-
-**Формула:**
-```
-Role_Accuracy = correct_roles / total_roles_in_matched_steps
-```
-
-**Пример:**
-```
-GT:        "Клиент оформляет заказ"     (role: Клиент)
-Extracted: "Customer places an order"   (actor: Customer)
-→ Role не совпадает (разные языки), Role_Accuracy = 0
-
-GT:        "Клиент оформляет заказ"     (role: Клиент)
-Extracted: "Клиент создаёт заказ"       (actor: Клиент)
-→ Role совпадает, Role_Accuracy = 1
-```
-
-#### 4. Step Count Accuracy (вес: 10%)
-
-**Что измеряет:** Насколько точно определено количество шагов.
-
-**Формула:**
-```
-Count_Accuracy = max(0, 1 - |extracted_count - gt_count| / gt_count)
-```
-
-**Пример:**
-```
-GT: 10 шагов, Extracted: 8 шагов
-Count_Accuracy = 1 - |8-10|/10 = 1 - 0.2 = 0.80
-```
-
-### Composite Score
-
-Итоговая оценка качества извлечения:
-
-```
-Score = 0.4 × Semantic_F1 + 0.3 × Sequence + 0.2 × Role_Accuracy + 0.1 × Count_Accuracy
-```
-
-**Интерпретация:**
-| Score | Качество |
-|-------|----------|
-| ≥ 0.70 | Хорошо (зелёный) |
-| 0.40 - 0.69 | Удовлетворительно (жёлтый) |
-| < 0.40 | Плохо (красный) |
-
-### Целевые показатели
-
-| Метрика | Цель |
-|---------|------|
-| **Composite Score** | ≥ 0.70 |
-| **Semantic F1** | ≥ 0.70 |
-| **Sequence Score** | ≥ 0.80 |
-| **Role Accuracy** | ≥ 0.60 |
-| **Latency (P95)** | ≤ 20 сек |
-| **Format Compliance** | 100% валидный JSON |
-
-### Запуск evaluation
+### Docker
 
 ```bash
-# Установка зависимостей
-pip install rich pandas sentence-transformers
+git clone <repo-url>
+cd diagram2algo
 
-# Полный прогон: extraction + evaluation
-python evaluate.py --run
+# прописать GEMINI_API_KEY в .env (см. ниже)
 
-# Evaluation по готовым результатам
-python evaluate.py eval_results.json
-
-# С кастомным ground truth
-python evaluate.py eval_results.json custom_gt.txt
-```
-
-### Вывод
-
-Результаты сохраняются в папку `eval_output/`:
-```
-eval_output/
-├── eval_YYYYMMDD_HHMMSS.csv              # Для pandas/Excel
-├── eval_YYYYMMDD_HHMMSS_detailed.json    # Детальный JSON
-└── eval_YYYYMMDD_HHMMSS.html             # Интерактивный HTML-отчёт
-```
-
----
-
-## 7. Риски и миtigация
-
-| Риск | Вероятность | Миtigация |
-|------|:-----------:|-----------|
-| Модель не укладывается в 20 сек на CPU | Высокая | 4-bit квантизация; переход на Qwen2-VL-2B (меньше и быстрее); ONNX Runtime оптимизация |
-| Модель плохо читает мелкий текст в диаграммах | Средняя | OCR (Tesseract) извлекает текст и передаёт как контекст |
-| Модель не понимает структуру сложных диаграмм | Средняя | Few-shot промпт с примерами из датасета; анализ ошибок + оптимизация промптов |
-| JSON-парсинг модели ломается | Средняя | Retry с уточнённым промптом; regex-fallback для извлечения шагов из raw-текста |
-| Не успеваем до этапа 7 | Высокая | Этап 7 — бонус; приоритет на этапах 1–6 |
-
----
-
-## 8. Датасет и Ground Truth
-
-Проект содержит исходные материалы в `docs/`:
-
-| Проект | Типы диаграмм | Что есть |
-|--------|---------------|----------|
-| Dodo Pizza | BPMN (7 сценариев), C4 (C1/C2/C3), Use Case, Entities | Текст процессов + PlantUML спецификации |
-| YouTube Clone | C4 (C1/C2/C3), Class, Sequence | PlantUML спецификации |
-| Uber Clone | C4 (Structurizr DSL), Sequence | Полная архитектура + поток заказа |
-| Telegram Clone | Class, Sequence | PlantUML спецификации |
-| Университетская ИС | C4 (C1/C2/C3), Class, Sequence | PlantUML спецификации |
-| Notion Clone | Class, Sequence | PlantUML спецификации |
-| Библиотечный сервис | C4 (Context/Containers), Class, Sequence, Use Case, Component | PlantUML спецификации |
-| test.txt | 11 PNG-диаграмм с ground truth | Пошаговые описания алгоритмов из изображений |
-
-`test.txt` — основной файл для валидации: содержит имена PNG-файлов и соответствующие им пошаговые описания алгоритмов, что позволяет автоматически оценивать качество извлечения.
-
----
-
-## 9. Docker
-
-### Структура
-
-```
-docker/
-├── Dockerfile          # GPU версия (CUDA)
-├── docker-compose.yml  # GPU с NVIDIA runtime
-```
-
-### Быстрый старт (GPU)
-
-**Требования:**
-- Docker + Docker Compose
-- NVIDIA GPU с 8+ GB VRAM
-- NVIDIA Container Toolkit (`nvidia-docker2`)
-
-```bash
-# Сборка и запуск
 cd docker
 docker compose up -d
 
-# Проверка статуса
-docker compose logs -f
-
-# Дождись "Model ready" в логах
+# если нужен Ollama fallback (нужна NVIDIA GPU)
+docker compose --profile ollama up -d
 ```
 
-### Тестирование
-
-**1. Health check:**
-```bash
-curl http://localhost:8000/api/health
-# {"status":"ok","model":"Qwen2-VL-2B-Instruct"}
-```
-
-**2. Извлечение из изображения:**
-```bash
-# JSON формат
-curl -X POST "http://localhost:8000/api/extract" \
-  -F "file=@path/to/diagram.png"
-
-# Текстовый формат (читаемый)
-curl -X POST "http://localhost:8000/api/extract?format=text" \
-  -F "file=@path/to/diagram.png"
-
-# HTML формат
-curl -X POST "http://localhost:8000/api/extract?format=html" \
-  -F "file=@path/to/diagram.png" > result.html
-```
-
-**3. Swagger UI:**
-Открой http://localhost:8000/docs в браузере.
-
-### Переменные окружения
-
-| Переменная | Описание | По умолчанию |
-|------------|----------|--------------|
-| `QWEN_MODEL` | Модель для инференса | `Qwen/Qwen2-VL-2B-Instruct` |
-| `CUDA_VISIBLE_DEVICES` | GPU для использования | `0` |
-| `USE_4BIT` | 4-bit квантизация (быстрее) | `1` |
-| `USE_OCR` | Tesseract OCR для текста | `1` |
-
-**Доступные модели:**
-- `Qwen/Qwen2-VL-2B-Instruct` — 2B параметров, ~4GB VRAM (рекомендуется для 8GB GPU)
-- `Qwen/Qwen2-VL-7B-Instruct` — 7B параметров, ~15GB VRAM, точнее
-
-**Оптимизации:**
-- 4-bit квантизация через bitsandbytes (USE_4BIT=1)
-- Уменьшение размера изображения до 768px
-- Ограничение max_tokens=512 для ускорения
-- ~5-7 секунд на изображение с GPU
-
-### Volumes
-
-| Volume | Назначение |
-|--------|------------|
-| `model-cache` | Кэш HuggingFace моделей (персистентный) |
-| `./data` | Входные данные |
-| `./eval_output` | Результаты evaluation |
-
-### Остановка
+### Локально
 
 ```bash
-docker compose down
-
-# С удалением кэша моделей
-docker compose down -v
-```
-
-### Troubleshooting
-
-**GPU не обнаружен:**
-```bash
-# Проверь NVIDIA runtime
-docker run --rm --gpus all nvidia/cuda:12.1-base nvidia-smi
-```
-
-**Segmentation fault при загрузке 7B:**
-- Недостаточно VRAM. Используй 2B модель:
-```bash
-QWEN_MODEL=Qwen/Qwen2-VL-2B-Instruct docker compose up -d
-```
-
-**Долгий первый запуск:**
-- Модель скачивается с HuggingFace (~4GB для 2B). Последующие запуски быстрые благодаря volume cache.
-
----
-
-## 10. Локальный запуск (без Docker)
-
-### Установка
-
-```bash
-# Клонируй репозиторий
-git clone <repo-url>
-cd cv-uml
-
-# Создай виртуальное окружение
 python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# или
 .venv\Scripts\activate     # Windows
+# source .venv/bin/activate  # Linux/Mac
 
-# Установи зависимости
 pip install -r requirements.txt
-```
 
-### Дополнительно (опционально)
+# прописать GEMINI_API_KEY в .env
 
-**Tesseract OCR (улучшает точность):**
-- Ubuntu: `apt install tesseract-ocr tesseract-ocr-rus`
-- Windows: https://github.com/UB-Mannheim/tesseract/wiki
-- Mac: `brew install tesseract tesseract-lang`
-
-**PlantUML (для генерации диаграмм):**
-```bash
-wget https://github.com/plantuml/plantuml/releases/download/v1.2024.0/plantuml-1.2024.0.jar
-```
-
-### Запуск
-
-```bash
-# Установи модель (2B для 8GB VRAM)
-export QWEN_MODEL=Qwen/Qwen2-VL-2B-Instruct
-
-# Запусти сервер
-python main.py
-# или
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-### CLI инструменты
+После запуска: http://localhost:8000 — UI, http://localhost:8000/docs — Swagger.
+
+## API
+
+**Health check:**
+```bash
+curl http://localhost:8000/api/health
+```
+
+**Извлечение из картинки:**
+```bash
+curl -X POST http://localhost:8000/api/extract -F "file=@diagram.png"
+```
+
+Ответ:
+```json
+{
+  "source_file": "diagram.png",
+  "diagram_type": "BPMN",
+  "steps": [
+    {"number": 1, "actor": "Клиент", "action": "Оформляет заказ"},
+    {"number": 2, "actor": "Система", "action": "Проверяет данные"}
+  ],
+  "confidence": 0.85
+}
+```
+
+**Извлечение из файла** (PDF, SVG, BPMN, DrawIO, архивы):
+```bash
+curl -X POST http://localhost:8000/api/extract/file -F "file=@process.bpmn"
+```
+
+**Пакетная обработка:**
+```bash
+curl -X POST http://localhost:8000/api/extract/batch -F "files=@a.png" -F "files=@b.svg"
+```
+
+**Генерация диаграммы:**
+```bash
+curl -X POST http://localhost:8000/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{"steps": [{"number": 1, "actor": "User", "action": "login"}], "diagram_type": "sequence"}'
+```
+
+**Метрики** (Prometheus-совместимые):
+```bash
+curl http://localhost:8000/metrics
+```
+
+## Поддерживаемые форматы
+
+| Формат | Расширения |
+|--------|-----------|
+| Изображения | PNG, JPG, GIF, BMP, WebP, TIFF |
+| Векторные | SVG |
+| Документы | PDF |
+| XML-диаграммы | DrawIO (.drawio, .dio), BPMN (.bpmn) |
+| Архивы | ZIP, RAR, 7Z |
+
+## Конфигурация
+
+Настройки через `.env`:
+
+| Переменная | По умолчанию | Описание |
+|------------|-------------|----------|
+| `LLM_PROVIDER` | `gemini` | `gemini` / `openrouter` / `ollama` |
+| `LLM_FALLBACK_PROVIDER` | `ollama` | fallback-провайдер (пусто — выключен) |
+| `GEMINI_API_KEY` | — | ключ Google AI Studio |
+| `GEMINI_MODEL` | `gemini-2.0-flash` | модель Gemini |
+| `OPENROUTER_API_KEY` | — | ключ OpenRouter |
+| `OPENROUTER_MODEL` | `google/gemini-2.0-flash-exp:free` | модель OpenRouter |
+| `OLLAMA_URL` | `http://localhost:11434` | адрес Ollama |
+| `OLLAMA_MODEL` | `qwen2.5-vl:7b` | модель для Ollama |
+| `MAX_TOKENS` | `2048` | лимит токенов |
+| `LLM_TIMEOUT` | `180.0` | таймаут в секундах |
+| `MAX_IMAGE_DIMENSION` | `1024` | макс. размер изображения |
+| `USE_OCR` | `true` | использовать Tesseract |
+| `LOG_LEVEL` | `INFO` | уровень логирования |
+| `LOG_JSON` | `false` | JSON-формат логов |
+
+### Получение Gemini API ключа
+
+1. Открыть https://aistudio.google.com/apikey
+2. Нажать "Create API Key"
+3. Вписать в `.env`:
+   ```
+   GEMINI_API_KEY=ваш-ключ
+   ```
+
+Бесплатный tier: 15 req/min, 1M tokens/min для gemini-2.0-flash.
+
+## Архитектура
+
+```
+Request → FastAPI (middleware, logging, request_id)
+        → Pipeline (detect file type → convert → preprocess → LLM → parse)
+        → LLM Provider (Gemini primary, Ollama fallback)
+        → JSON Response
+```
+
+Основные модули:
+
+- `app/config.py` — конфигурация через pydantic-settings
+- `app/llm/` — абстракция над LLM-провайдерами (Gemini, OpenRouter, Ollama), factory с auto-fallback
+- `app/pipeline.py` — оркестратор обработки файлов
+- `app/routes/` — эндпоинты (extract, generate, health, metrics)
+- `app/converters/` — конвертеры форматов (SVG, PDF, BPMN, DrawIO, архивы)
+- `app/preprocessing.py` — ресайз, контраст, обработка тёмного фона
+- `app/postprocessing.py` — парсинг JSON-ответов LLM, regex-fallback
+- `app/exceptions.py` — иерархия исключений с FastAPI-хендлерами
+- `app/logging_config.py` — structured logging, request_id через contextvars
+
+## Docker
 
 ```bash
-# Извлечение из одного изображения
-python extract.py path/to/diagram.png
+# только Gemini (без GPU)
+cd docker && docker compose up -d
 
-# Полная evaluation на тестовом датасете
-python evaluate.py --run
-
-# Evaluation по готовым результатам
-python evaluate.py eval_results.json
+# Gemini + Ollama (нужна NVIDIA GPU с 8GB+ VRAM)
+cd docker && docker compose --profile ollama up -d
 ```
+
+При профиле `ollama` поднимается контейнер с GPU passthrough, `OLLAMA_URL` переопределяется автоматически.
+
+## Тестирование
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+
+## Стек
+
+Python 3.11, FastAPI, Google Gemini (google-genai SDK), OpenRouter, Ollama, Tesseract OCR, Pillow, PyMuPDF, PlantUML, Docker, GitHub Actions, Pydantic v2.

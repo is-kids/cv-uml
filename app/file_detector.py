@@ -18,6 +18,8 @@ EXTENSION_MAP = {
 
     ".svg": FileType.SVG,
 
+    ".pdf": FileType.PDF,
+
     ".drawio": FileType.DRAWIO,
     ".dio": FileType.DRAWIO,
     ".xml": FileType.DRAWIO,
@@ -68,6 +70,7 @@ def get_handler_name(file_type: FileType) -> str:
     handlers = {
         FileType.IMAGE: "image_inference",
         FileType.SVG: "svg_to_image",
+        FileType.PDF: "pdf_to_images",
         FileType.DRAWIO: "drawio_to_text",
         FileType.BPMN: "bpmn_to_text",
         FileType.ARCHIVE: "extract_and_process",

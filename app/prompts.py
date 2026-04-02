@@ -1,6 +1,3 @@
-"""Prompts for LLM inference."""
-
-# Prompt for extracting steps from diagram images (with OCR text)
 IMAGE_PROMPT = """Ты анализируешь изображение диаграммы процесса. Это может быть BPMN, flowchart, UML sequence, или произвольная схема.
 
 Твоя задача: извлечь пошаговый алгоритм из диаграммы.
@@ -73,7 +70,6 @@ IMAGE_PROMPT = """Ты анализируешь изображение диаг�
 Теперь проанализируй изображение и верни JSON."""
 
 
-# Prompt without OCR text
 IMAGE_PROMPT_NO_OCR = """Ты анализируешь изображение диаграммы процесса. Это может быть BPMN, flowchart, UML sequence, или произвольная схема.
 
 Твоя задача: извлечь пошаговый алгоритм из диаграммы.
@@ -105,7 +101,6 @@ IMAGE_PROMPT_NO_OCR = """Ты анализируешь изображение д
 Проанализируй изображение и верни JSON."""
 
 
-# Prompt for extracting steps from text-based diagram formats (DrawIO XML, BPMN)
 TEXT_PROMPT = """Ты анализируешь текстовое описание диаграммы (PlantUML код, Structurizr DSL, метки из XML или текстовое описание).
 
 Извлеки пошаговый алгоритм процесса.
@@ -139,7 +134,6 @@ TEXT_PROMPT = """Ты анализируешь текстовое описани
 Верни JSON."""
 
 
-# Simplified prompts for when full JSON parsing fails
 SIMPLE_IMAGE_PROMPT = """Перечисли все шаги с этой диаграммы, по одному на строку.
 Формат: [номер]. [роль, если есть] -> [действие] -> [цель, если есть]
 
@@ -161,7 +155,92 @@ SIMPLE_TEXT_PROMPT = """Перечисли все шаги/действия из
 2. Сервер -> Обрабатывает данные -> База данных"""
 
 
-# Prompt for generating PlantUML from steps
+IMAGE_PROMPT_EN = """You are analyzing a process diagram image. It could be BPMN, flowchart, UML sequence, activity diagram, or any custom scheme.
+
+Your task: extract the step-by-step algorithm from the diagram.
+
+OCR text extracted from the diagram:
+{ocr_text}
+
+STEP-BY-STEP ANALYSIS:
+1. Identify diagram type (BPMN, sequence, flowchart, activity, other)
+2. Find the starting point (Start event, first arrow, first element)
+3. Trace the flow along arrows/connections from start to end
+4. For each element identify: who acts (actor), what they do (action), what they target (target)
+5. Number steps in execution order
+6. Note branches and conditions in the "note" field
+
+IMPORTANT:
+- PRESERVE the original language of text on the diagram (Russian, English, etc.) — do NOT translate
+- Extract ALL visible steps, do not skip any
+- "actor" = WHO performs the action (participant, system, user). Use null if not shown
+- "target" = WHO or WHAT receives the action. Use null if not applicable
+- Return ONLY the JSON object below. No markdown fences, no explanation, no extra text
+- Output must be parseable by json.loads() in Python
+
+{{
+  "diagram_type": "sequence|flowchart|activity|bpmn|other",
+  "steps": [
+    {{"number": 1, "actor": "role or null", "action": "action description", "target": "target or null", "note": "note or null"}}
+  ],
+  "confidence": 0.0-1.0
+}}"""
+
+
+IMAGE_PROMPT_EN_NO_OCR = """You are analyzing a process diagram image. It could be BPMN, flowchart, UML sequence, activity diagram, or any custom scheme.
+
+Your task: extract the step-by-step algorithm from the diagram.
+
+STEP-BY-STEP ANALYSIS:
+1. Identify diagram type (BPMN, sequence, flowchart, activity, other)
+2. Find the starting point (Start event, first arrow, first element)
+3. Trace the flow along arrows/connections from start to end
+4. For each element identify: who acts (actor), what they do (action), what they target (target)
+5. Number steps in execution order
+6. Note branches and conditions in the "note" field
+
+IMPORTANT:
+- PRESERVE the original language of text on the diagram (Russian, English, etc.) — do NOT translate
+- Extract ALL visible steps, do not skip any
+- "actor" = WHO performs the action (participant, system, user). Use null if not shown
+- Return ONLY the JSON object below. No markdown fences, no explanation, no extra text
+- Output must be parseable by json.loads() in Python
+
+{
+  "diagram_type": "sequence|flowchart|activity|bpmn|other",
+  "steps": [
+    {"number": 1, "actor": "role or null", "action": "action description", "target": "target or null", "note": "note or null"}
+  ],
+  "confidence": 0.0-1.0
+}"""
+
+
+TEXT_PROMPT_EN = """You are analyzing a text-based diagram description (PlantUML code, Structurizr DSL, DrawIO XML labels, or BPMN XML).
+
+Extract the step-by-step process algorithm.
+
+STEP-BY-STEP ANALYSIS:
+1. Detect the format (PlantUML, BPMN XML, DrawIO XML, Structurizr DSL, text)
+2. Extract all elements/nodes (participants, tasks, events)
+3. Find all connections/transitions between elements
+4. Determine execution order from connections
+5. For each step identify: actor, action, target
+6. Note conditions and branches
+
+IMPORTANT:
+- Preserve the original language of element labels — do NOT translate
+- Return ONLY the JSON object below. No markdown fences, no explanation
+- Output must be parseable by json.loads() in Python
+
+{{{{
+  "diagram_type": "sequence|flowchart|activity|state|bpmn|other",
+  "steps": [
+    {{{{"number": 1, "actor": "participant or null", "action": "action description", "target": "target or null", "note": "note or null"}}}}
+  ],
+  "confidence": 0.0-1.0
+}}}}"""
+
+
 PLANTUML_SEQUENCE_PROMPT = """Convert these steps to PlantUML sequence diagram syntax.
 
 Steps:

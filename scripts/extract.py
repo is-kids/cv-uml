@@ -1,5 +1,3 @@
-"""CLI tool for extracting and displaying diagram steps."""
-
 import sys
 from pathlib import Path
 
@@ -19,9 +17,6 @@ console = Console()
 
 
 def format_result(result) -> None:
-    """Pretty print extraction result."""
-
-    # Header
     console.print()
     title = f"[bold cyan]{result.source_file}[/bold cyan]"
     if result.diagram_type:
@@ -37,14 +32,12 @@ def format_result(result) -> None:
         console.print("[yellow]Шаги не найдены[/yellow]")
         return
 
-    # Steps as readable list
     console.print("\n[bold]Алгоритм:[/bold]\n")
 
     for step in result.steps:
         num = step.number or "•"
         action = step.action or "—"
 
-        # Format: number. [Actor] Action -> Target
         line = f"  [cyan]{num}.[/cyan] "
 
         if step.actor:
@@ -60,7 +53,6 @@ def format_result(result) -> None:
         if step.note and step.note != step.action:
             console.print(f"      [dim italic]({step.note})[/dim italic]")
 
-    # Summary
     console.print(f"\n[dim]Всего шагов: {len(result.steps)}[/dim]")
     if result.confidence:
         conf_color = "green" if result.confidence >= 0.7 else "yellow" if result.confidence >= 0.4 else "red"
@@ -68,8 +60,6 @@ def format_result(result) -> None:
 
 
 def extract_and_show(image_path: str) -> None:
-    """Extract steps from image and display nicely."""
-
     path = Path(image_path)
     if not path.exists():
         console.print(f"[red]Файл не найден: {image_path}[/red]")

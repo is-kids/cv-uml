@@ -1,34 +1,39 @@
 import sys
+import time
 from pathlib import Path
 
 from PIL import Image
-from app.config import DOCS_DIR
-from app.llm import image_inference, warmup
+
+from app.config import settings, DOCS_DIR
+from app.llm import get_provider, warmup
 from app.preprocessing import preprocess_image
-from app.prompts import IMAGE_PROMPT
+from app.prompts import IMAGE_PROMPT_EN
 from app.postprocessing import parse_llm_response
+
 
 def main():
     print("=" * 60)
-    print("CV-UML Model Test")
+    print("Diagram2Algo Model Test")
     print("=" * 60)
 
-    print("\n[1/4] Loading model...")
+    provider = get_provider()
+    print(f"\nProvider: {provider.name}")
+    print(f"Model: {provider.model_id}")
+
+    print("\n[1/3] Warming up...")
+    start = time.time()
     if not warmup():
-        print("ERROR: Failed to load model")
+        print("ERROR: Warmup failed")
         sys.exit(1)
-    print("Model loaded!")
+    print(f"Ready in {time.time() - start:.1f}s")
 
     test_images = list(DOCS_DIR.rglob("*.png"))[:3]
-
     if not test_images:
         print(f"No test images found in {DOCS_DIR}")
-        print("Using placeholder test...")
         return
 
     for i, image_path in enumerate(test_images):
-        print(f"\n[{i+2}/4] Processing: {image_path.name}")
-
+        print(f"\n[{i + 2}/3] Processing: {image_path.name}")
         try:
             image = Image.open(image_path)
             print(f"  Original size: {image.size}")
@@ -37,22 +42,20 @@ def main():
             print(f"  Processed size: {processed.size}")
 
             print("  Running inference...")
-            response = image_inference(processed, IMAGE_PROMPT)
+            start = time.time()
+            response = provider.image_inference(processed, IMAGE_PROMPT_EN)
+            elapsed = time.time() - start
 
             result = parse_llm_response(response, str(image_path))
 
             print(f"  Diagram type: {result.diagram_type or 'unknown'}")
-            print(f"  Confidence: {result.confidence:.2f}")
             print(f"  Steps found: {len(result.steps)}")
+            print(f"  Inference time: {elapsed:.1f}s")
 
             if result.steps:
-                print("  First 3 steps:")
                 for step in result.steps[:3]:
                     actor = step.actor or "?"
                     print(f"    {step.number}. [{actor}] {step.action}")
-
-            if result.error:
-                print(f"  Error: {result.error}")
 
         except Exception as e:
             print(f"  ERROR: {e}")
@@ -60,6 +63,7 @@ def main():
     print("\n" + "=" * 60)
     print("Test completed!")
     print("=" * 60)
+
 
 if __name__ == "__main__":
     main()

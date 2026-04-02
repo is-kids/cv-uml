@@ -1,5 +1,3 @@
-"""SVG to PIL Image converter using PyMuPDF."""
-
 import logging
 from pathlib import Path
 from typing import Optional, Union
@@ -10,16 +8,7 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
-def render_svg(path: Union[str, Path], dpi: int = 200) -> Optional[Image.Image]:
-    """Render SVG file to PIL Image using PyMuPDF.
-
-    Args:
-        path: Path to SVG file.
-        dpi: Resolution for rasterization.
-
-    Returns:
-        PIL Image or None if rendering fails.
-    """
+def render_svg(path: Union[str, Path], dpi: int = 300) -> Optional[Image.Image]:
     try:
         doc = fitz.open(str(path))
         page = doc[0]
